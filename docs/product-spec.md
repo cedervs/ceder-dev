@@ -21,7 +21,8 @@ Boucle d'engagement visée : Voyager → découvrir → débloquer → regarder 
 - Carte **illustrée**, jamais satellite. Interface simple, légèrement ludique, 3–4 couleurs principales.
 - Mode clair, mode sombre, et option « suivre le système ».
 - Écran principal dominé par la carte, avec le **pourcentage mondial découvert visible immédiatement**.
-- Navigation géographique progressive : **Monde → Continent → Pays → Région → Zone → Lieu**. Plus on zoome, plus le détail apparaît ; aucun écran ne doit être surchargé.
+- Navigation géographique progressive : **Monde → Continent → Pays**, puis une hiérarchie qui **dépend du pays** en dessous (ex. France : Région → Département → Commune → Zone ; USA : État → Comté → Ville → Zone — détails dans [discovery-engine.md](discovery-engine.md) §19). Plus on zoome, plus le détail apparaît ; aucun écran ne doit être surchargé.
+- Option future « Détails de voyage » / « Noms de lieux » (désactivée par défaut) : une fois activée, affiche davantage de noms de villes/villages/régions/lieux autour de l'historique de voyage de l'utilisateur, avec une densité de libellés adaptative au zoom pour éviter l'encombrement à l'échelle mondiale. Purement visuel — n'affecte jamais H3, le pourcentage d'exploration, le XP ni le Certified.
 - Code couleur indicatif : gris = non découvert ; orange = visité ; orange plus intense = exploré ; lignes = trajets ; points = lieux.
 - Les trajets affichés sont **simplifiés visuellement**, jamais rendus comme une trace GPS brute illisible.
 - 4 sections principales maximum : **Map, Journey, Progress, Profile**.
@@ -68,7 +69,9 @@ Deux ensembles **strictement distincts**. Une même cellule géographique peut �
 
 ### Mode Certified
 - L'acquisition de **nouvelles** découvertes Certified commence uniquement lorsque l'utilisateur active le mode Certified. Les découvertes antérieures effectuées en Normal ne sont **jamais** converties rétroactivement en Certified.
-- Une découverte Certified doit provenir du tracking et passer par une **validation côté serveur** : le téléphone est une source non fiable, le serveur est l'autorité finale.
+- Une découverte Certified doit provenir du tracking en direct **ou** d'une récupération manuelle/historique appuyée sur des preuves suffisamment solides (voir [certified-mode.md](certified-mode.md) §9), et dans tous les cas passer par une **validation côté serveur** : le téléphone est une source non fiable, le serveur est l'autorité finale.
+- Récupération manuelle/historique (*incrément post-MVP*) : deux résultats de confiance visibles — **Certified** (preuves validées côté serveur) ou **Non-certifié** (souvenir personnel sans preuve suffisante, affiché dans un style visuel distinct, jamais compté dans les classements officiels). Détails complets dans [certified-mode.md](certified-mode.md) §9.
+- Bascule simple sur la carte (« Afficher les découvertes non certifiées ») : OFF = Certified uniquement ; ON = Certified + Normal/non-certifié, ce dernier dans un style visuel clairement distinct. Voir [certified-mode.md](certified-mode.md) §11.
 - Détails complets de la machine à états et des signaux d'intégrité dans [certified-mode.md](certified-mode.md).
 - Une cellule Certified déjà validée **reste acquise** si l'utilisateur désactive puis réactive le mode ; la désactivation arrête uniquement l'acquisition de nouvelles découvertes pendant cette période.
 - Le score Certified n'est jamais achetable.
@@ -104,9 +107,40 @@ Deux ensembles **strictement distincts**. Une même cellule géographique peut �
 - Classement Certified officiel initial : niveau **Standard** uniquement. Un futur classement Certified Precision est envisageable, mais deux utilisateurs de niveaux de précision différents ne sont jamais comparés dans un même classement.
 - Égalités possibles (plusieurs utilisateurs à 100 % d'un pays) : règle de départage volontairement non tranchée pour l'instant.
 - Un profil privé n'apparaît pas nécessairement dans les classements publics — décision de confidentialité à préciser avant activation de cette fonctionnalité.
-- Achievements envisageables après stabilisation du moteur.
+- Achievements envisageables après stabilisation du moteur — voir aussi le système XP/collections ci-dessous, qui formalise ce concept.
 - Le score Certified n'est jamais achetable.
 - Si de véritables interactions sociales sont ajoutées plus tard (commentaires, amis, comparaisons…), blocage/signalement/modération devront être définis avant mise en production.
+
+### Exploration % vs XP (futur, non-MVP)
+
+Séparation produit stricte, détail complet dans [discovery-engine.md](discovery-engine.md) §21 :
+
+- **Pourcentage d'exploration** répond à « quelle part du monde ai-je géographiquement exploré ? » ; **XP** (futur) répond à « quelles choses notables ai-je découvertes ? ». Les deux ne sont **jamais** mélangés — visiter un monument n'augmente jamais le pourcentage au-delà de la surface physique réellement parcourue.
+- Le XP pourra récompenser des lieux notables sélectionnés strictement (monuments, sites historiques, musées majeurs, merveilles naturelles, points de vue, parcs, plages, châteaux, sommets…), avec une importance pouvant être contextuelle (un site local peut compter pour son village sans rivaliser avec un monument mondialement iconique).
+- Aucune valeur de XP n'est validée ; le XP n'est pas une monnaie ; une éventuelle dépensabilité future reste ouverte.
+- **Futur / non-MVP**, mais l'architecture doit rester extensible pour l'accueillir sans toucher au calcul du pourcentage ni du score Certified.
+
+### Repères communautaires « immanquables » (futur, non-MVP)
+
+Concept distinct des lieux XP officiels ci-dessus et du calcul de découverte — détail complet dans [discovery-engine.md](discovery-engine.md) §22 :
+
+- Lieux recommandés par les voyageurs (point de vue caché, plage locale, ruelle, crique, petit site historique…) — ne donnent **ni** pourcentage géographique **ni** XP par défaut.
+- Chaque utilisateur ne peut recommander/aimer un même lieu qu'une seule fois ; une preuve de proximité physique est préférée avant de permettre une recommandation.
+- Démarrage à froid : le premier utilisateur crée/recommande le lieu, qui n'est **pas** immédiatement visible publiquement ; un autre utilisateur physiquement proche peut être informé discrètement qu'un lieu proche a déjà été recommandé, pour aider à confirmer plutôt que dupliquer. Fusion intelligente des propositions proches en utilisant plus que la seule proximité (nom, type, description, autres signaux), car deux lieux réels peuvent n'être séparés que de 20–30 mètres.
+- Un seuil d'environ 10 utilisateurs indépendants est une **hypothèse de départ uniquement** pour la confirmation publique — **non tranché**, et ne doit pas devenir le seul critère : modération, anti-spam et vérifications de confiance restent nécessaires.
+- Cycle de vie interne envisageable (nommage provisoire) : Nouveau → Confirmé → Immanquable communautaire. Le premier créateur pourra recevoir un crédit « Découvert par @Pseudo » une fois le lieu réellement confirmé/public — aucun crédit s'il est rejeté comme spam ou fusionné dans un lieu déjà existant.
+- La popularité communautaire ne doit **jamais** promouvoir automatiquement un lieu vers la base XP officielle. Visibilité sur la carte progressive avec le zoom.
+- **Futur / non-MVP.**
+
+### Souvenirs personnels de voyage (futur, non-MVP)
+
+Détail complet dans [discovery-engine.md](discovery-engine.md) §15 :
+
+- Court texte/commentaire, emoji/icône, photo, potentiellement courte vidéo, date — attachés à un lieu visité.
+- **Privés par défaut** ; aucun effet sur le pourcentage d'exploration, le XP ou le score Certified.
+- Couche/bascule « Souvenirs » optionnelle sur la carte, visibilité progressive avec le zoom.
+- Un partage explicite futur de souvenirs sélectionnés pourra exister, mais rien ne devient public automatiquement ; les localisations précises/sensibles restent privées.
+- **Futur / non-MVP.**
 
 ### Communauté / discussions géolocalisées (futur, non-MVP)
 
@@ -123,7 +157,7 @@ World Discovery pourra un jour inclure une couche communautaire de discussions *
 
 ## 8. Ce qui n'est volontairement pas construit maintenant
 
-Réseau social complet, messagerie, communauté/discussions géolocalisées, classement mondial/pays, Certified complet, achievements, système avancé de souvenirs, import historique complet avec preuve, avatar complexe type Bitmoji, bio/liens externes, Sign in with Apple réellement implémenté, monétisation complexe, globe 3D sophistiqué.
+Réseau social complet, messagerie, communauté/discussions géolocalisées, repères communautaires immanquables, système XP/collections, classement mondial/pays, Certified complet, achievements, système avancé de souvenirs, import historique complet avec preuve, récupération manuelle/historique de découvertes (Certified/Non-certifié), avatar complexe type Bitmoji, bio/liens externes, Sign in with Apple réellement implémenté, monétisation complexe, globe 3D sophistiqué.
 
 ## 9. Principe produit à préserver
 

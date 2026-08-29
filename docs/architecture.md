@@ -15,6 +15,7 @@
 9. **Présentation séparée du domaine** : langue, thème, unités n'affectent jamais la découverte, les cellules H3, les scores ou le Certified.
 10. **Remplaçabilité des fournisseurs externes** : fournisseur cartographique, et plus généralement toute dépendance externe forte, doit rester isolée derrière une interface interne.
 11. **Extensibilité vers une future couche communautaire** : une éventuelle couche de discussions géolocalisées (concept produit futur/non-MVP, voir [discovery-engine.md](discovery-engine.md) §18) devra pouvoir s'ajouter sans reconstruire l'application. Elle devra rester architecturalement indépendante du moteur de découverte, du calcul de pourcentage et du score Certified — elle ne doit jamais influencer ces calculs — et ne devra jamais exposer la position actuelle ou précise d'un utilisateur du seul fait de sa participation à une discussion. Ce principe ne préjuge d'aucun module, table ou endpoint concret : il garantit seulement que l'architecture actuelle n'empêche pas cet ajout futur.
+12. **Extensibilité vers l'engagement futur (XP, repères communautaires, souvenirs personnels)** : un futur système de XP/collections (voir [discovery-engine.md](discovery-engine.md) §21), des repères communautaires « immanquables » (§22) et des souvenirs personnels de lieux (§15) devront pouvoir s'ajouter sans reconstruire l'application, et rester strictement sans effet sur le calcul du pourcentage d'exploration et sur le score Certified. Comme pour le principe 11, ceci ne préjuge d'aucun module, table ou endpoint concret.
 
 ## 2. Stack technique retenue
 
@@ -99,7 +100,7 @@ Réutilise le mécanisme de synchronisation (pull par curseur) en mode « pull c
 
 World Discovery conserve une **représentation canonique unique**, suffisamment fine pour permettre de dériver Easy, Standard et Precision sans maintenir trois historiques indépendants — **c'est la seule chose actée à ce stade**. Easy, Standard et Precision sont des **agrégations dérivées** de cette même vérité (fonction d'agrégation propre à chaque niveau, pas nécessairement une relation parent/enfant H3 stricte pour Precision, qui admet une tolérance spatiale).
 
-**La structure exacte de cette représentation canonique, sa résolution H3 précise et les règles d'agrégation exactes restent ouvertes** et doivent être étudiées/testées dans [discovery-engine.md](discovery-engine.md) avant d'être figées. Il n'est **pas** décidé qu'elle corresponde nécessairement à « la résolution H3 la plus fine supportée » — H3 reste la technologie géospatiale validée, mais aucune résolution n'est choisie à ce stade.
+**La résolution H3 canonique retenue pour la v1 est H3 12** (décision provisoire/calibrable, versionnée — voir [discovery-engine.md](discovery-engine.md) §8). **La structure exacte de cette représentation canonique et les règles d'agrégation précises restent ouvertes** et doivent être étudiées/testées dans [discovery-engine.md](discovery-engine.md) avant d'être figées.
 
 Une fois cette représentation figée, aucune donnée supplémentaire ne sera nécessaire pour supporter un changement de niveau après plusieurs années d'usage : ce sera un changement de vue de lecture, pas une nouvelle capture.
 
@@ -115,12 +116,28 @@ Pour `mode = certified`, cette table (ou son équivalent final) est une **projec
 - `eligibility_signals` *(h3_index, signal_type, source, value)* — table de **signaux séparée de la décision finale**. La présence de Google Street View ou d'une couverture automobile similaire **ne constitue jamais une preuve d'accessibilité légale** ; elle peut au mieux devenir un signal auxiliaire parmi d'autres (données administratives/légales, tags d'accès, réserves, zones militaires connues). Seul le `status` résolu dans `cell_eligibility` est consommé par le calcul de pourcentage et l'affichage.
 - Versionné **indépendamment** de `engine_version` : l'éligibilité peut changer pour des raisons étrangères au moteur.
 - Les cellules `RESTRICTED_EXCLUDED` n'entrent **jamais** ni au numérateur ni au dénominateur : elles ne sont jamais nécessaires pour atteindre 100 %. Un score de 100 % correspond à l'objectif de « territoire éligible selon la version du référentiel applicable », pas à chaque mètre carré physique.
-- **La composition exacte du dénominateur reste ouverte**, en particulier le traitement de `UNKNOWN` : il ne doit être **ni inclus ni exclu arbitrairement** avant décision documentée — décider par défaut son exclusion (ou son inclusion) pourrait rendre artificiellement un territoire plus facile, ou plus difficile, à compléter selon la qualité des données d'accessibilité disponibles. Décision à étudier explicitement dans [discovery-engine.md](discovery-engine.md).
+- **Traitement de `UNKNOWN` : décidé (2026-08-29).** `UNKNOWN` reste **hors du dénominateur** tant qu'il n'est pas classifié — 0 % de requis, 0 % de bonus, plafond à 100 % préservé. Détail complet et procédure de reclassification dans [discovery-engine.md](discovery-engine.md) §10. La **construction exacte** du reste du dénominateur (arrondis, cellules partiellement couvertes par une frontière, agrégation géométrique) reste, elle, ouverte.
 - Un changement de version du référentiel n'efface pas l'historique ; une recomputation vers une nouvelle version est un job explicite, jamais automatique/silencieux.
 
 ### Référentiel géographique pour pays et classements
 
 `countries` (référentiel versionné) et `h3_country_mapping` (cellule → pays, calculé une fois, pas à la volée) — nécessaires à la fois pour le pourcentage par pays affiché à l'utilisateur et pour les futurs classements (§11).
+
+La hiérarchie sous le niveau pays est **dépendante du pays** (types génériques envisagés : `COUNTRY`, `ADMIN_1`, `ADMIN_2`, `LOCALITY`, `ZONE`, avec des noms d'affichage localement appropriés) — voir [discovery-engine.md](discovery-engine.md) §19 pour le détail produit. Lorsque les subdivisions officielles ne suffisent pas à une progression utile, des « zones World Discovery » non officielles peuvent compléter ce référentiel, clairement identifiées comme telles.
+
+### Sources de données géographiques (stratégie hybride envisagée)
+
+Stratégie hybride actuellement retenue, décrite ici pour référence — **le pipeline d'ingestion exact reste ouvert et n'est pas implémenté à ce stade** :
+
+- **Natural Earth** : affichage mondial/continental grossier et frontières simplifiées.
+- **geoBoundaries** : squelette administratif normalisé à l'échelle mondiale.
+- **OpenStreetMap** : frontières administratives détaillées/locales, routes, chemins, lieux, informations d'accès, détail géographique local.
+- **Overture Maps** : source complémentaire à évaluer/utiliser là où c'est pertinent.
+- **Couche propre à World Discovery** : corrections, zones spéciales, zones de progression personnalisées (« zones World Discovery », voir ci-dessus), comblement des lacunes non résolues par les sources précédentes.
+
+**GADM n'est pas retenu comme fondation géographique principale du projet** : sa licence n'est pas adaptée à l'usage commercial/mondial visé sans autorisation supplémentaire.
+
+Toute référence géographique importée doit être **versionnée** (cohérent avec le principe 8 de §1), afin qu'une évolution de source n'efface jamais silencieusement l'historique de découverte déjà acquis.
 
 ## 9. Internationalisation (architecture)
 
@@ -162,3 +179,5 @@ Basés **exclusivement** sur les données Certified.
 - Séquencement de développement : [roadmap.md](roadmap.md).
 - Vision produit et UX : [product-spec.md](product-spec.md).
 - Concept futur de communauté/discussions géolocalisées (non-MVP) : [discovery-engine.md](discovery-engine.md) §18 et [product-spec.md](product-spec.md) §7.
+- Sources de données géographiques envisagées et hiérarchie flexible par pays : §8 ci-dessus et [discovery-engine.md](discovery-engine.md) §19.
+- Récupération manuelle/historique de découvertes et reconstruction de trajet (Certified) : [certified-mode.md](certified-mode.md) §8–§11.
