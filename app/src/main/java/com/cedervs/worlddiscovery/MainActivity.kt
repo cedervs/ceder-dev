@@ -11,9 +11,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val authRepository = (application as WorldDiscoveryApplication).appContainer.authRepository
         setContent {
             WorldDiscoveryTheme {
-                WorldDiscoveryApp()
+                WorldDiscoveryApp(authRepository = authRepository)
             }
         }
     }

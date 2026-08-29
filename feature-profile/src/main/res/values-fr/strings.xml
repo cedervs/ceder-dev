@@ -1,4 +1,9 @@
 <resources>
     <string name="profile_placeholder_title">Profil</string>
     <string name="profile_placeholder_body">Cette section n\'est pas encore implémentée.</string>
+    <string name="profile_signed_out_title">Vous n\'êtes pas connecté</string>
+    <string name="profile_sign_in_with_google">Se connecter avec Google</string>
+    <string name="profile_signed_in_title">Connecté</string>
+    <string name="profile_sign_out">Se déconnecter</string>
+    <string name="profile_sign_in_error">Échec de la connexion. Merci de réessayer.</string>
 </resources>

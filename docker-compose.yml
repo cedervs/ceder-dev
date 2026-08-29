@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-worlddiscovery}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-worlddiscovery}
+      POSTGRES_DB: ${POSTGRES_DB:-worlddiscovery}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-worlddiscovery}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Ephemeral instance dedicated to the backend test suite. Never used for dev data.
+  postgres_test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: worlddiscovery_test
+      POSTGRES_PASSWORD: worlddiscovery_test
+      POSTGRES_DB: worlddiscovery_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U worlddiscovery_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file:
+      - backend/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  postgres_data:

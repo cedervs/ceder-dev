@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only network security policy. This file lives under src/debug and is never merged
+  into a release build, so this cleartext allowance can never ship to production.
+  It exists solely so a physical device on the same LAN can reach a locally hosted dev
+  backend (docker compose, API_BASE_URL from local.properties) without HTTPS.
+  A future production backend must still be reached over HTTPS — release keeps the
+  platform default (cleartext disabled), see AndroidManifest.xml / this file's absence there.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

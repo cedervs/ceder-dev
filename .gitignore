@@ -8,3 +8,11 @@ build/
 */build/
 .cxx/
 captures/
+
+# Backend (Python/FastAPI)
+backend/.env
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/.venv/

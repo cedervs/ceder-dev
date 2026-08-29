@@ -1,4 +1,9 @@
 <resources>
     <string name="profile_placeholder_title">Profile</string>
     <string name="profile_placeholder_body">This section is not implemented yet.</string>
+    <string name="profile_signed_out_title">You are not signed in</string>
+    <string name="profile_sign_in_with_google">Sign in with Google</string>
+    <string name="profile_signed_in_title">Signed in</string>
+    <string name="profile_sign_out">Sign out</string>
+    <string name="profile_sign_in_error">Sign-in failed. Please try again.</string>
 </resources>

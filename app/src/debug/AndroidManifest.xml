@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Merged only into debug builds (AGP source-set manifest merging) — never affects release.
+  Points the app at a debug-only network security config that permits cleartext HTTP,
+  so a physical device can reach a local dev backend without HTTPS.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_config_debug" />
+</manifest>
