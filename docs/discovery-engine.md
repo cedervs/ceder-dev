@@ -7,7 +7,7 @@
 > - **[Hypothèse à tester]** — comportement attendu, mais dont les paramètres exacts doivent être vérifiés par des scénarios de test reproductibles avant d'être figés.
 > - **[OUVERT — à calibrer]** — aucune valeur numérique, formule, résolution ou seuil n'est choisie. Ne pas deviner, ne pas approximer « pour avancer ». Une implémentation temporaire/expérimentale reste possible (voir CLAUDE.md règle 5) mais doit être clairement isolée et jamais présentée comme définitive.
 >
-> Ce document remplace l'ancienne organisation en catégories A/B/C séparées par une organisation thématique — le contenu et la discipline de séparation sont préservés, seule la présentation change pour rester lisible à mesure que le nombre de règles augmente.
+> Ce document remplace l'ancienne organisation en catégories A/B/C (Validé/Hypothèse/Ouvert) par une organisation thématique avec étiquettes inline — le contenu et la discipline de séparation sont préservés, seule la présentation change. La liste finale « Questions ouvertes » utilise, elle, un **second axe de classification A/B/C** (décision produit / implémentation technique / calibration), sans rapport avec l'ancien découpage : il sert uniquement à distinguer ce qui bloque réellement une décision produit de ce qui relève de l'ingénierie ou du test.
 
 ## Pipeline conceptuel
 
@@ -260,9 +260,15 @@ Si l'éligibilité change plus tard : la découverte physique historique reste p
 
 **[Validé]** L'Antarctique et autres environnements extrêmes légitimes ne sont **pas** automatiquement exclus au seul motif qu'ils sont difficiles d'accès. Le mode Standard doit au contraire être capable d'une généralisation représentative très forte dans les vastes environnements homogènes (voir §6).
 
-**[Validé]** Le pôle Nord nécessite un traitement géographique spécifique car il ne s'agit pas de terre émergée au sens de l'Antarctique — la banquise/glace de mer ne doit **pas** être traitée avec légèreté comme une surface terrestre éligible permanente.
+**[Validé — 2026-08-29] Antarctique.** L'Antarctique reste géographiquement explorable. La complétion Standard ne doit toutefois jamais exiger de traverser physiquement d'immenses zones de glace arbitraires ni de réaliser une expédition extrême/professionnelle — une généralisation représentative **très forte** s'y applique (§6). Le référentiel d'éligibilité déjà défini (`ELIGIBLE` / `RESTRICTED_EXCLUDED` / `UNKNOWN`, §10) s'applique normalement : secteurs raisonnablement accessibles, zones côtières, itinéraires légitimes, zones visitables et autre géographie accessible représentative peuvent contribuer à l'exploration ; les secteurs fermés/interdits sont `RESTRICTED_EXCLUDED` ; un accès insuffisamment documenté reste `UNKNOWN`, donc hors dénominateur jusqu'à classification.
 
-**[OUVERT — à calibrer]** Traitement exact, référentiel géographique et plafonds de généralisation pour les zones polaires et désertiques — voir aussi §6 et §10.
+**[Validé]** Le pôle Sud est situé sur une terre continentale **permanente** et peut être enregistré comme une découverte exceptionnelle s'il est réellement atteint. L'atteindre n'est cependant **jamais requis** pour 100 % Standard Antarctique ; cela pourra plus tard octroyer du XP/badge/succès/progression de collection (voir §21).
+
+**[Validé — 2026-08-29] Arctique.** La terre émergée **permanente** de l'Arctique suit les règles terrestres normales de World Discovery (ex. Groenland, Svalbard, nord du Canada, Alaska, nord de la Russie, îles arctiques permanentes) — ces îles restent une géographie terrestre à part entière (cohérent avec §11). Les zones terrestres très isolées/homogènes peuvent utiliser une généralisation représentative forte selon les règles déjà définies (§6).
+
+**[Validé]** Le pôle Nord géographique est situé sur l'océan Arctique/la banquise, **pas** sur de la terre émergée. Il n'entre **jamais** dans le dénominateur d'exploration terrestre normal ; la banquise temporaire ne devient **jamais** une surface terrestre mondiale (cohérent avec §11 — l'océan n'est pas une surface terrestre). L'atteindre pourra plus tard être enregistré comme une découverte exceptionnelle et octroyer du XP/badge/succès — jamais requis pour la complétion terrestre à 100 %.
+
+**[OUVERT — à calibrer]** Référentiel géographique exact (cartographie précise des secteurs accessibles) et plafonds de généralisation numériques pour les zones polaires/désertiques. Le principe produit lui-même — généralisation forte, éligibilité via le référentiel standard, pôles jamais requis pour 100 % — est désormais **tranché** ; seuls les paramètres numériques restent à calibrer (voir « Terrains de calibration réels »).
 
 ---
 
@@ -277,6 +283,14 @@ Si l'éligibilité change plus tard : la découverte physique historique reste p
 **[Validé]** 100 % Hard/Precision peut être considérablement plus exigeant, mais doit toujours respecter l'accessibilité légale.
 
 Cet invariant contraint directement §5, §6, §7 et §9 : aucun modèle de densité/généralisation/pondération ne peut être validé s'il rend 100 % Standard irréaliste au sens ci-dessus.
+
+**[Validé — 2026-08-29] Principe général de géographie extrême**, destiné à couvrir les futurs cas analogues sans exiger une nouvelle décision produit à chaque nouveau lieu extrême :
+
+> « Le pourcentage géographique mesure l'exploration représentative de la géographie terrestre permanente pouvant raisonnablement faire partie du système de découverte. Les environnements temporaires/océaniques et les exploits extrêmes exceptionnels peuvent être enregistrés et récompensés séparément, mais ne sont jamais requis pour la complétion Standard à 100 %. »
+
+Ce principe généralise les cas déjà tranchés de l'océan ouvert (§11) et de l'Antarctique/des pôles (§12) à toute situation géographique extrême future analogue (ex. un futur cas non encore identifié aujourd'hui), sans qu'une nouvelle décision produit spécifique soit nécessaire à chaque fois — seule son application au cas particulier (référentiel d'éligibilité, généralisation) reste un travail d'implémentation/calibration, pas une nouvelle décision produit.
+
+**[Validé]** « Raisonnablement accessible » ne signifie **pas** « facile ». Une exploration légale mais difficile compte normalement pour le pourcentage. La distinction déjà établie entre difficile, interdit et inconnu (§10) reste inchangée par ce principe.
 
 ---
 
@@ -513,27 +527,59 @@ Ces scénarios doivent être formalisés en tests automatisés (unitaires pour l
 
 ---
 
-## Questions ouvertes / nécessitent une validation explicite
+## Questions ouvertes — classification (2026-08-29)
 
-Aucun des points suivants ne doit être deviné, approximé « pour avancer », ni codé en dur avant décision explicite documentée ici. *(Résolus depuis la dernière révision : résolution H3 canonique → §8 ; politique du dénominateur `UNKNOWN` → §10 ; principe général de traitement des frontières contestées → §20 ; principe général de fusion de signaux de localisation → §23.)*
+**Principe de classification.** Une question n'est une décision produit « OUVERTE/BLOQUANTE » que si le **comportement attendu** lui-même n'est pas encore défini. Le fait qu'une formule, un pipeline de données, un coefficient, un seuil ou un algorithme précis n'ait pas encore été choisi **n'est pas**, en soi, une décision produit bloquante dès lors que le comportement produit requis est déjà acté ailleurs dans ce document. Les points ci-dessous sont donc classés en trois catégories :
 
-1. Formule exacte de densité adaptative (§5) et de pondération de l'exploration (§9) — signaux identifiés, pondération non choisie.
-2. Coefficients finaux de la philosophie de précision (Easy/Hard vs Standard) et distances de généralisation urbaine calibrées (§8).
-3. Distances/rayons minimum et maximum de généralisation en territoire homogène (§6, §12).
-4. Règles exactes d'agrégation Easy/Standard/Hard depuis la représentation canonique (§8).
-5. Critère exact de présence *validée* déclenchant le statut « visité » (§4).
-6. Référentiel/hiérarchie géographique de référence par pays (§19) et sa source de données (voir architecture.md §8, « Sources de données géographiques »).
-7. Classification pays/territoire (îles, territoires contestés, dépendances — §11, §20) ; classification exacte territoire par territoire des frontières disputées (§20).
-8. Sources de données d'éligibilité et processus de résolution/mise à jour (§10) ; seuils exacts de reclassification `UNKNOWN` (nombre de signalements indépendants requis, pondération des sources).
-9. Traitement du dénominateur pour l'Antarctique/les zones polaires (§12).
-10. Comportement de découverte océanique/côtière, y compris le traitement exact des îles minuscules/rochers (§11).
-11. Traitement fin des corridors ferroviaires si une distinction supplémentaire s'avère nécessaire (§3).
-12. Construction exacte du dénominateur du pourcentage (gestion des arrondis, cellules partiellement couvertes par une frontière, agrégation géométrique précise).
-13. Jeux de données et seuils d'acceptation pour la calibration/le test du modèle avant mise en production (voir « Terrains de calibration réels »).
-14. Procédure de gestion des changements futurs d'éligibilité — cadre général tranché (§10), délais/gouvernance exacts restant ouverts.
-15. Algorithme exact et seuils de fusion/rejet de signaux de localisation (§23) ; limites exactes de reconstruction lors d'une perte GPS temporaire (§24).
-16. Valeurs de XP exactes, sélection précise des lieux notables, et éventuelle dépensabilité du XP (§21).
-17. Seuil exact de confirmation publique d'un repère communautaire (l'hypothèse ~10 utilisateurs indépendants n'est qu'une hypothèse de départ), règles de fusion anti-doublon précises, et modalités de modération/anti-spam (§22, voir aussi product-spec.md §7).
-18. Barème/critères exacts de confiance pour la récupération historique (quelles combinaisons de preuves suffisent à quel niveau de certification) (§25, voir certified-mode.md §9).
+- **A — Décision produit réellement ouverte** : le comportement attendu lui-même n'est pas défini. Bloquant pour la fonctionnalité concernée.
+- **B — Décision d'implémentation technique** : le comportement attendu est défini ; reste à concevoir *comment* le construire (algorithme, pipeline de données, représentation exacte). N'exige pas de nouvelle décision produit pour commencer.
+- **C — Paramètre de calibration/test** : le comportement attendu est défini ; reste à mesurer/ajuster une valeur numérique par des tests réels (voir « Terrains de calibration réels »). N'exige pas de nouvelle décision produit ; le premier moteur doit rendre ces valeurs configurables/versionnées pour absorber la calibration ultérieure sans migration destructive.
+
+*Résolus depuis les dernières révisions (ne plus rouvrir) : résolution H3 canonique (§8) ; politique du dénominateur `UNKNOWN` (§10) ; principe général de traitement des frontières contestées (§20) ; principe général de fusion de signaux de localisation (§23) ; traitement de l'Antarctique/l'Arctique/des pôles (§12) ; stratégie de sources géographiques (architecture.md §8) ; hiérarchie géographique flexible (§19) ; comportement Certified/non-certifié (certified-mode.md §8–§11) ; découverte offline-first ; philosophie de pondération/densité adaptative (§5, §9) ; îles/territoires disjoints (§11) ; distinction terrestre/océan ouvert (§11, §13).*
+
+### A. Décisions produit réellement ouvertes
+
+Toutes concernent des fonctionnalités **futures/non-MVP**, déjà hors périmètre du premier moteur de découverte :
+
+1. Valeurs de XP exactes, sélection précise des lieux notables, et éventuelle dépensabilité du XP (§21) — futur, non-MVP.
+2. Seuil exact de confirmation publique d'un repère communautaire, règles de fusion anti-doublon précises, et modalités de modération/anti-spam (§22, voir aussi product-spec.md §7) — futur, non-MVP.
+3. Barème/critères exacts de confiance pour la récupération historique (quelles combinaisons de preuves suffisent à quel niveau de certification) (§25, voir certified-mode.md §9) — futur, incrément V1+.
+
+**Aucune de ces trois décisions ne concerne le premier moteur de découverte Normal.** Elles bloquent uniquement leurs fonctionnalités respectives (XP, repères communautaires, récupération historique), pas le démarrage de l'implémentation du moteur.
+
+### B. Décisions d'implémentation technique (comportement déjà défini)
+
+4. Mécanisme exact d'agrégation reliant la représentation canonique (H3 12) aux niveaux Easy/Standard/Hard (§8) — les cibles produit (50–60 %/200–250 % d'effort) sont données.
+5. Référentiel/hiérarchie géographique de référence par pays (§19) et pipeline exact alimentant chaque source (§ « Sources de données géographiques », architecture.md §8) — la stratégie hybride et la hiérarchie flexible sont validées.
+6. Classification pays/territoire (îles, dépendances) et classification exacte territoire par territoire des frontières disputées (§11, §20) — le principe (physique d'abord, affichage neutre) est validé ; reste l'application aux données réelles.
+7. Sources de données d'éligibilité précises et processus opérationnel de résolution/mise à jour (§10) — le référentiel `ELIGIBLE`/`RESTRICTED_EXCLUDED`/`UNKNOWN` et son comportement de dénominateur sont validés.
+8. Traitement cartographique exact des îles minuscules/rochers isolés pour déterminer leur accessibilité légitime (§11) — le principe (ne jamais rendre 100 % impossible) est validé.
+9. Traitement fin des corridors ferroviaires, uniquement si une distinction s'avère nécessaire au-delà du principe général déjà acté (§3).
+10. Construction géométrique exacte du dénominateur du pourcentage (arrondis, cellules partiellement couvertes par une frontière, agrégation géométrique) (§10, §12) — la définition « 100 % = 100 % du territoire éligible » est validée.
+11. Gouvernance/délais opérationnels exacts de reclassification d'éligibilité — le cadre général (jamais un seul signalement, historique préservé, recalcul versionné) est validé (§10).
+
+Aucun de ces points n'exige de nouvelle décision produit pour démarrer — ce sont des choix de conception/ingénierie à faire dans le respect des comportements déjà actés ci-dessus dans ce document.
+
+### C. Paramètres de calibration/test (comportement déjà défini, valeur numérique à mesurer)
+
+12. Formule exacte de densité adaptative (§5) et de pondération de l'exploration (§9) — signaux primaires déjà identifiés et validés ; pondération relative à calibrer.
+13. Coefficients finaux de la philosophie de précision (Easy ≈ 50–60 %, Hard ≈ 200–250 % de Standard) et distances de généralisation urbaine (Easy ≈ 80 m, Standard ≈ 40 m, Hard ≈ 15–20 m) (§8) — hypothèses de départ déjà posées.
+14. Distances/rayons minimum et maximum de généralisation en territoire homogène et polaire/désertique (§6, §12).
+15. Critère exact de présence *validée* déclenchant le statut « visité » (durée, nombre de cellules, seuil de confiance) (§4) — le principe « aucun seuil de pourcentage requis » est, lui, déjà tranché.
+16. Algorithme exact et seuils de fusion/rejet de signaux de localisation (§23) ; limites exactes de reconstruction lors d'une perte GPS temporaire (§24) — la philosophie de fusion/reconstruction est validée.
+17. Seuils exacts de reclassification `UNKNOWN` (nombre de signalements indépendants requis, pondération des sources) (§10) — le principe (jamais un seul utilisateur) est validé.
+18. Jeux de données et seuils d'acceptation pour la calibration/le test du modèle avant mise en production (voir « Terrains de calibration réels »).
+
+Ces valeurs doivent être **configurables et versionnées** dès la première implémentation (voir §16), pour être ajustées par les tests de terrain sans migration destructive ni perte d'historique — elles n'exigent aucune validation produit supplémentaire, seulement des tests.
+
+---
+
+## État de préparation à l'implémentation
+
+**Le comportement produit actuellement validé est suffisant pour démarrer l'implémentation de la première version du moteur de découverte Normal.**
+
+Justification : sur les 18 questions encore ouvertes recensées ci-dessus, **aucune ne relève de la catégorie A pour le périmètre du premier moteur** — les trois seules décisions produit réellement ouvertes (XP, repères communautaires, récupération historique) concernent des fonctionnalités futures/non-MVP explicitement hors périmètre (voir [roadmap.md](roadmap.md)), pas le moteur lui-même. Tous les autres points sont des décisions d'implémentation (catégorie B) ou des paramètres de calibration (catégorie C) : le comportement attendu est défini, seule sa traduction technique ou sa valeur numérique exacte reste à établir.
+
+La première implémentation doit être conçue pour que tous les paramètres de catégorie C (coefficients de pondération, distances de généralisation, seuils de présence, seuils de fusion GPS, etc.) soient **configurables et versionnés** (`engine_version`, référentiel d'éligibilité versionné séparément — voir §16), afin d'être calibrés ultérieurement par des tests de terrain physiques (voir « Terrains de calibration réels ») sans jamais nécessiter une migration destructive ni perdre l'historique de découverte déjà acquis. Aucune fonctionnalité future non-MVP (XP, repères communautaires, récupération historique avancée par IA) ne doit être considérée comme un préalable au démarrage du moteur central.
 
 Aucun de ces points n'est tranché dans ce document — ils appellent une décision produit explicite avant toute implémentation.
