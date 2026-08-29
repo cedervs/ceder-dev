@@ -15,6 +15,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.cedervs.worlddiscovery.core.auth.AuthRepository
+import com.cedervs.worlddiscovery.core.location.SubmitCurrentLocationUseCase
 import com.cedervs.worlddiscovery.feature.journey.JourneyScreen
 import com.cedervs.worlddiscovery.feature.map.MapScreen
 import com.cedervs.worlddiscovery.feature.profile.ProfileScreen
@@ -22,7 +23,7 @@ import com.cedervs.worlddiscovery.feature.progress.ProgressScreen
 import com.cedervs.worlddiscovery.navigation.TopLevelDestination
 
 @Composable
-fun WorldDiscoveryApp(authRepository: AuthRepository) {
+fun WorldDiscoveryApp(authRepository: AuthRepository, submitCurrentLocationUseCase: SubmitCurrentLocationUseCase) {
     val navController = rememberNavController()
 
     Scaffold(
@@ -53,7 +54,9 @@ fun WorldDiscoveryApp(authRepository: AuthRepository) {
             startDestination = TopLevelDestination.MAP.route,
             modifier = Modifier.padding(innerPadding),
         ) {
-            composable(TopLevelDestination.MAP.route) { MapScreen() }
+            composable(TopLevelDestination.MAP.route) {
+                MapScreen(submitCurrentLocation = { submitCurrentLocationUseCase() })
+            }
             composable(TopLevelDestination.JOURNEY.route) { JourneyScreen() }
             composable(TopLevelDestination.PROGRESS.route) { ProgressScreen() }
             composable(TopLevelDestination.PROFILE.route) { ProfileScreen(authRepository = authRepository) }

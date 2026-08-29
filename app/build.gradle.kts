@@ -58,6 +58,14 @@ android {
     }
 }
 
+// The generic `com.uber:h3` artifact (pulled in transitively via :core-discovery-engine, used
+// there so its own JVM unit tests keep working with desktop natives) bundles no Android native
+// library and must never reach the packaged app — see AndroidH3CellConverter. Excluding it here
+// avoids a duplicate-class clash with com.uber:h3-android, which the app uses instead.
+configurations.all {
+    exclude(group = "com.uber", module = "h3")
+}
+
 dependencies {
     implementation(project(":feature-map"))
     implementation(project(":feature-journey"))
@@ -65,11 +73,16 @@ dependencies {
     implementation(project(":feature-profile"))
     implementation(project(":core-network"))
     implementation(project(":core-auth"))
+    implementation(project(":core-discovery-engine"))
+    implementation(project(":core-database"))
+    implementation(project(":core-location"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.room.runtime)
+    implementation(libs.h3.android)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

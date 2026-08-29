@@ -1,22 +1,79 @@
 package com.cedervs.worlddiscovery.feature.map
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
+import com.cedervs.worlddiscovery.core.location.LocationPermissions
+import com.cedervs.worlddiscovery.core.location.LocationTestOutcome
+import kotlinx.coroutines.launch
 
 @Composable
-fun MapScreen() {
+fun MapScreen(submitCurrentLocation: suspend () -> LocationTestOutcome) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var isBusy by remember { mutableStateOf(false) }
+    var lastOutcome by remember { mutableStateOf<LocationTestOutcome?>(null) }
+    // UI-only nuance, not part of the domain outcome: whether the permission looks permanently
+    // denied ("don't ask again"), so we can hint at Settings without a new domain concept.
+    var permissionPermanentlyDenied by remember { mutableStateOf(false) }
+    var permissionRequestedBefore by remember { mutableStateOf(false) }
+
+    fun runTest() {
+        isBusy = true
+        permissionPermanentlyDenied = false
+        coroutineScope.launch {
+            lastOutcome = submitCurrentLocation()
+            isBusy = false
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(RequestMultiplePermissions()) { grants ->
+        if (grants.values.any { it }) {
+            runTest()
+        } else {
+            val activity = context.findActivity()
+            val canStillAskAgain = activity != null &&
+                ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity,
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                )
+            // If we've already asked once before and the system now refuses to show a rationale,
+            // the user most likely picked "don't ask again" — best-effort detection only.
+            permissionPermanentlyDenied = permissionRequestedBefore && !canStillAskAgain
+            lastOutcome = LocationTestOutcome.PermissionDenied
+        }
+        permissionRequestedBefore = true
+    }
+
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -28,12 +85,57 @@ fun MapScreen() {
                 text = stringResource(R.string.map_placeholder_body),
                 style = MaterialTheme.typography.bodyMedium,
             )
+            Spacer(Modifier.height(24.dp))
+            Button(
+                enabled = !isBusy,
+                onClick = {
+                    lastOutcome = null
+                    if (LocationPermissions.hasAnyLocationPermission(context)) {
+                        runTest()
+                    } else {
+                        permissionLauncher.launch(LocationPermissions.REQUIRED_PERMISSIONS)
+                    }
+                },
+            ) {
+                Text(stringResource(R.string.map_test_location_button))
+            }
+            if (isBusy) {
+                Spacer(Modifier.height(16.dp))
+                CircularProgressIndicator()
+            }
+            lastOutcome?.let { outcome ->
+                Spacer(Modifier.height(16.dp))
+                val textRes = outcome.toDisplayStringRes(permissionPermanentlyDenied)
+                Text(
+                    text = stringResource(textRes),
+                    color = if (outcome == LocationTestOutcome.Success) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                )
+            }
         }
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-private fun MapScreenPreview() {
-    MapScreen()
+private fun LocationTestOutcome.toDisplayStringRes(permissionPermanentlyDenied: Boolean): Int = when (this) {
+    LocationTestOutcome.Success -> R.string.map_test_location_result_success
+    LocationTestOutcome.PermissionDenied -> if (permissionPermanentlyDenied) {
+        R.string.map_test_location_result_permission_denied_permanently
+    } else {
+        R.string.map_test_location_result_permission_denied
+    }
+    LocationTestOutcome.LocationServicesDisabled -> R.string.map_test_location_result_services_disabled
+    LocationTestOutcome.LocationUnavailable -> R.string.map_test_location_result_unavailable
+    LocationTestOutcome.SubmissionError -> R.string.map_test_location_result_error
+}
+
+private fun Context.findActivity(): Activity? {
+    var current = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return null
 }

@@ -1,4 +1,11 @@
 <resources>
     <string name="map_placeholder_title">Carte</string>
     <string name="map_placeholder_body">Cette section n\'est pas encore implémentée.</string>
+    <string name="map_test_location_button">Tester la position actuelle</string>
+    <string name="map_test_location_result_success">Cellule de découverte enregistrée</string>
+    <string name="map_test_location_result_permission_denied">L\'autorisation de localisation est nécessaire pour tester ceci.</string>
+    <string name="map_test_location_result_permission_denied_permanently">L\'autorisation de localisation a été refusée. Activez-la dans les paramètres système pour tester ceci.</string>
+    <string name="map_test_location_result_services_disabled">Activez les services de localisation pour tester ceci.</string>
+    <string name="map_test_location_result_unavailable">Impossible d\'obtenir une position pour l\'instant. Réessayez.</string>
+    <string name="map_test_location_result_error">Une erreur est survenue. Réessayez.</string>
 </resources>
