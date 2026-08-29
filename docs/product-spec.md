@@ -108,9 +108,22 @@ Deux ensembles **strictement distincts**. Une même cellule géographique peut �
 - Le score Certified n'est jamais achetable.
 - Si de véritables interactions sociales sont ajoutées plus tard (commentaires, amis, comparaisons…), blocage/signalement/modération devront être définis avant mise en production.
 
+### Communauté / discussions géolocalisées (futur, non-MVP)
+
+World Discovery pourra un jour inclure une couche communautaire de discussions **centrées sur les lieux** — pas un réseau social générique. Détails complets dans [discovery-engine.md](discovery-engine.md) §18 ; résumé produit ici pour cohérence de la vision :
+
+- Les discussions peuvent être associées à une entité géographique : pays, région, ville, zone ou lieu précis.
+- Objectif : permettre aux utilisateurs de poser des questions, partager conseils, expériences, recommandations, avertissements, photos et informations pratiques de voyage sur une destination (ex. « où loger à Bangkok ? », quoi visiter/éviter, conseils de transport…).
+- Un utilisateur consultant ou préparant une destination pourra accéder aux discussions liées à cette entité géographique.
+- Distinction stricte avec les souvenirs personnels (§2, §8) : les notes/photos/souvenirs **personnels** restent privés à l'historique de voyage de l'utilisateur sauf partage explicite ; les discussions **communautaires** sont intentionnellement publiées pour les autres utilisateurs. Ce sont deux systèmes séparés.
+- L'activité communautaire n'influence **jamais** le pourcentage de découverte ni le score Certified.
+- La position actuelle ou précise d'un utilisateur n'est **jamais** exposée du seul fait de sa participation à une discussion sur un lieu.
+- Avant toute implémentation réelle, doivent être définis : modération, signalement, blocage, prévention du spam/abus, confidentialité, comportement profil public/privé, confidentialité de localisation, règles de contenu, édition/suppression, et considérations mineurs/sécurité.
+- **Futur / non-MVP** : concept produit uniquement à ce stade, aucune implémentation prévue avant que les points ci-dessus soient explicitement tranchés.
+
 ## 8. Ce qui n'est volontairement pas construit maintenant
 
-Réseau social complet, messagerie, classement mondial/pays, Certified complet, achievements, système avancé de souvenirs, import historique complet avec preuve, avatar complexe type Bitmoji, bio/liens externes, Sign in with Apple réellement implémenté, monétisation complexe, globe 3D sophistiqué.
+Réseau social complet, messagerie, communauté/discussions géolocalisées, classement mondial/pays, Certified complet, achievements, système avancé de souvenirs, import historique complet avec preuve, avatar complexe type Bitmoji, bio/liens externes, Sign in with Apple réellement implémenté, monétisation complexe, globe 3D sophistiqué.
 
 ## 9. Principe produit à préserver
 

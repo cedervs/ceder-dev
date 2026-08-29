@@ -14,6 +14,7 @@
 8. **Versionnement multi-axes** : moteur (`engine_version`), règles d'agrégation de précision, référentiel d'éligibilité — chacun versionné indépendamment, aucun ne doit rendre l'historique utilisateur incompréhensible ou destructible.
 9. **Présentation séparée du domaine** : langue, thème, unités n'affectent jamais la découverte, les cellules H3, les scores ou le Certified.
 10. **Remplaçabilité des fournisseurs externes** : fournisseur cartographique, et plus généralement toute dépendance externe forte, doit rester isolée derrière une interface interne.
+11. **Extensibilité vers une future couche communautaire** : une éventuelle couche de discussions géolocalisées (concept produit futur/non-MVP, voir [discovery-engine.md](discovery-engine.md) §18) devra pouvoir s'ajouter sans reconstruire l'application. Elle devra rester architecturalement indépendante du moteur de découverte, du calcul de pourcentage et du score Certified — elle ne doit jamais influencer ces calculs — et ne devra jamais exposer la position actuelle ou précise d'un utilisateur du seul fait de sa participation à une discussion. Ce principe ne préjuge d'aucun module, table ou endpoint concret : il garantit seulement que l'architecture actuelle n'empêche pas cet ajout futur.
 
 ## 2. Stack technique retenue
 
@@ -160,3 +161,4 @@ Basés **exclusivement** sur les données Certified.
 - Détails du mode Certified : [certified-mode.md](certified-mode.md).
 - Séquencement de développement : [roadmap.md](roadmap.md).
 - Vision produit et UX : [product-spec.md](product-spec.md).
+- Concept futur de communauté/discussions géolocalisées (non-MVP) : [discovery-engine.md](discovery-engine.md) §18 et [product-spec.md](product-spec.md) §7.
