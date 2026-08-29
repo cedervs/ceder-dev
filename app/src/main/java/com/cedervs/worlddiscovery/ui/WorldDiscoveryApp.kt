@@ -23,7 +23,11 @@ import com.cedervs.worlddiscovery.feature.progress.ProgressScreen
 import com.cedervs.worlddiscovery.navigation.TopLevelDestination
 
 @Composable
-fun WorldDiscoveryApp(authRepository: AuthRepository, submitCurrentLocationUseCase: SubmitCurrentLocationUseCase) {
+fun WorldDiscoveryApp(
+    authRepository: AuthRepository,
+    submitCurrentLocationUseCase: SubmitCurrentLocationUseCase,
+    onLocationPermissionGranted: () -> Unit,
+) {
     val navController = rememberNavController()
 
     Scaffold(
@@ -55,7 +59,10 @@ fun WorldDiscoveryApp(authRepository: AuthRepository, submitCurrentLocationUseCa
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(TopLevelDestination.MAP.route) {
-                MapScreen(submitCurrentLocation = { submitCurrentLocationUseCase() })
+                MapScreen(
+                    submitCurrentLocation = { submitCurrentLocationUseCase() },
+                    onLocationPermissionGranted = onLocationPermissionGranted,
+                )
             }
             composable(TopLevelDestination.JOURNEY.route) { JourneyScreen() }
             composable(TopLevelDestination.PROGRESS.route) { ProgressScreen() }

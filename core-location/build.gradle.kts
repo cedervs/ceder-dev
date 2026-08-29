@@ -23,6 +23,7 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.androidx.lifecycle.common)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

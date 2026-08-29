@@ -83,6 +83,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.room.runtime)
     implementation(libs.h3.android)
+    implementation(libs.androidx.lifecycle.process)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

@@ -33,7 +33,10 @@ import com.cedervs.worlddiscovery.core.location.LocationTestOutcome
 import kotlinx.coroutines.launch
 
 @Composable
-fun MapScreen(submitCurrentLocation: suspend () -> LocationTestOutcome) {
+fun MapScreen(
+    submitCurrentLocation: suspend () -> LocationTestOutcome,
+    onLocationPermissionGranted: () -> Unit,
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -56,6 +59,12 @@ fun MapScreen(submitCurrentLocation: suspend () -> LocationTestOutcome) {
     val permissionLauncher = rememberLauncherForActivityResult(RequestMultiplePermissions()) { grants ->
         if (grants.values.any { it }) {
             runTest()
+            // The automatic foreground tracking session may have already terminated as
+            // PermissionDenied before the user granted permission here (see AppContainer's
+            // retryLocationTrackingAfterPermissionGranted doc) — nudge it to retry now, in the
+            // same foreground period, rather than waiting for the next app foreground/background
+            // cycle.
+            onLocationPermissionGranted()
         } else {
             val activity = context.findActivity()
             val canStillAskAgain = activity != null &&

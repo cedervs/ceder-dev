@@ -17,6 +17,7 @@ class MainActivity : ComponentActivity() {
                 WorldDiscoveryApp(
                     authRepository = appContainer.authRepository,
                     submitCurrentLocationUseCase = appContainer.submitCurrentLocationUseCase,
+                    onLocationPermissionGranted = appContainer::retryLocationTrackingAfterPermissionGranted,
                 )
             }
         }
