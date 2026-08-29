@@ -1,0 +1,68 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "ee554c7dfec7c6c9b21c8aa468947b8d",
+    "entities": [
+      {
+        "tableName": "discovered_cells",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`h3Index` TEXT NOT NULL, `trustStatus` TEXT NOT NULL, `h3Resolution` INTEGER NOT NULL, `engineVersion` INTEGER NOT NULL, `provenance` TEXT NOT NULL, `firstDiscoveredAtEpochMillis` INTEGER NOT NULL, `lastObservedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`h3Index`, `trustStatus`))",
+        "fields": [
+          {
+            "fieldPath": "h3Index",
+            "columnName": "h3Index",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trustStatus",
+            "columnName": "trustStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "h3Resolution",
+            "columnName": "h3Resolution",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "engineVersion",
+            "columnName": "engineVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provenance",
+            "columnName": "provenance",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firstDiscoveredAtEpochMillis",
+            "columnName": "firstDiscoveredAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastObservedAtEpochMillis",
+            "columnName": "lastObservedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "h3Index",
+            "trustStatus"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ee554c7dfec7c6c9b21c8aa468947b8d')"
+    ]
+  }
+}
