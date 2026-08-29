@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">World Discovery</string>
+    <string name="nav_map">Carte</string>
+    <string name="nav_journey">Voyage</string>
+    <string name="nav_progress">Progression</string>
+    <string name="nav_profile">Profil</string>
+</resources>

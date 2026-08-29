@@ -1,2 +1,10 @@
 .idea/
 *.iml
+
+# Android/Gradle build outputs and machine-specific files
+local.properties
+.gradle/
+build/
+*/build/
+.cxx/
+captures/

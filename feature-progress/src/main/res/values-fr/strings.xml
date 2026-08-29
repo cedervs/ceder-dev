@@ -1,0 +1,4 @@
+<resources>
+    <string name="progress_placeholder_title">Progression</string>
+    <string name="progress_placeholder_body">Cette section n\'est pas encore implémentée.</string>
+</resources>
