@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.auth.google import InvalidGoogleTokenError
+from app.auth.google import GoogleIdentity, InvalidGoogleTokenError
 from app.deps import get_google_verifier
 from app.main import app
 from app.models import AuthIdentity, User
@@ -49,6 +49,49 @@ def test_google_login_is_idempotent_for_same_identity(client: TestClient, set_go
 
     all_users = db_session.scalars(select(User)).all()
     assert len(all_users) == 1
+
+
+def test_google_login_refreshes_email_and_verified_at_on_each_login(
+    client: TestClient, set_google_identity, db_session
+):
+    set_google_identity(make_google_identity(subject_id="sub-email-change", email="old@example.com"))
+    first = client.post("/v1/auth/google", json={"id_token": "fake"})
+    assert first.status_code == 200
+
+    set_google_identity(make_google_identity(subject_id="sub-email-change", email="new@example.com"))
+    second = client.post("/v1/auth/google", json={"id_token": "fake"})
+    assert second.status_code == 200
+
+    # Same person, same Google account (provider_subject_id unchanged) => same user.
+    assert decode_access_token(first.json()["access_token"])["sub"] == decode_access_token(
+        second.json()["access_token"]
+    )["sub"]
+
+    identity_row = db_session.scalar(select(AuthIdentity).where(AuthIdentity.provider_subject_id == "sub-email-change"))
+    assert identity_row.email == "new@example.com"
+    assert identity_row.verified_at is not None
+
+    matching_identities = db_session.scalars(
+        select(AuthIdentity).where(AuthIdentity.provider_subject_id == "sub-email-change")
+    ).all()
+    assert len(matching_identities) == 1, "must update the existing row, never create a second identity"
+
+
+def test_google_login_without_verified_email_clears_verified_at(client: TestClient, set_google_identity, db_session):
+    set_google_identity(make_google_identity(subject_id="sub-loses-verification", email="verified@example.com"))
+    first = client.post("/v1/auth/google", json={"id_token": "fake"})
+    assert first.status_code == 200
+
+    set_google_identity(
+        GoogleIdentity(subject_id="sub-loses-verification", email="verified@example.com", email_verified=False)
+    )
+    second = client.post("/v1/auth/google", json={"id_token": "fake"})
+    assert second.status_code == 200
+
+    identity_row = db_session.scalar(
+        select(AuthIdentity).where(AuthIdentity.provider_subject_id == "sub-loses-verification")
+    )
+    assert identity_row.verified_at is None
 
 
 def test_google_login_rejects_invalid_token(client: TestClient):

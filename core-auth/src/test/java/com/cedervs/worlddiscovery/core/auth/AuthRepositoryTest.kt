@@ -100,6 +100,51 @@ class AuthRepositoryTest {
         assertTrue(!backendCalled)
         assertEquals(SessionState.SignedOut, repository.sessionState.value)
     }
+
+    @Test
+    fun `requestEmailCode success does not change session state`() = runTest {
+        var requestedEmail: String? = null
+        fakeAuthApi.requestEmailCodeAction = { email, _ -> requestedEmail = email }
+
+        val result = repository.requestEmailCode("user@example.com")
+
+        assertTrue(result.isSuccess)
+        assertEquals("user@example.com", requestedEmail)
+        assertEquals(SessionState.Unknown, repository.sessionState.value)
+    }
+
+    @Test
+    fun `requestEmailCode failure is surfaced without touching storage`() = runTest {
+        fakeAuthApi.requestEmailCodeAction = { _, _ -> throw AuthApiException("resend_cooldown") }
+
+        val result = repository.requestEmailCode("user@example.com")
+
+        assertTrue(result.isFailure)
+        assertEquals("resend_cooldown", result.exceptionOrNull()?.message)
+        assertNull(fakeTokenStorage.readRefreshToken())
+    }
+
+    @Test
+    fun `verifyEmailCode success persists the refresh token and signs in with the email`() = runTest {
+        fakeAuthApi.verifyEmailCodeResult = { Result.success(AuthTokens("access-1", "refresh-1", 900)) }
+
+        val result = repository.verifyEmailCode("user@example.com", "123456")
+
+        assertTrue(result.isSuccess)
+        assertEquals(SessionState.SignedIn("user@example.com"), repository.sessionState.value)
+        assertEquals("refresh-1", fakeTokenStorage.readRefreshToken())
+    }
+
+    @Test
+    fun `verifyEmailCode failure does not touch storage or session state`() = runTest {
+        fakeAuthApi.verifyEmailCodeResult = { Result.failure(AuthApiException("invalid_code")) }
+
+        val result = repository.verifyEmailCode("user@example.com", "000000")
+
+        assertTrue(result.isFailure)
+        assertNull(fakeTokenStorage.readRefreshToken())
+        assertEquals(SessionState.Unknown, repository.sessionState.value)
+    }
 }
 
 private class FakeAuthProvider : AuthProvider {
@@ -113,6 +158,8 @@ private class FakeAuthApi : AuthApi {
     var loginResult: () -> Result<AuthTokens> = { Result.failure(AuthApiException("not_configured")) }
     var refreshResult: () -> Result<AuthTokens> = { Result.failure(AuthApiException("not_configured")) }
     var logoutAction: (String) -> Unit = {}
+    var requestEmailCodeAction: (String, String?) -> Unit = { _, _ -> }
+    var verifyEmailCodeResult: () -> Result<AuthTokens> = { Result.failure(AuthApiException("not_configured")) }
 
     override suspend fun loginWithGoogle(idToken: String, deviceInfo: String?): AuthTokens =
         loginResult().getOrThrow()
@@ -122,6 +169,13 @@ private class FakeAuthApi : AuthApi {
     override suspend fun logout(refreshToken: String) {
         logoutAction(refreshToken)
     }
+
+    override suspend fun requestEmailCode(email: String, locale: String?) {
+        requestEmailCodeAction(email, locale)
+    }
+
+    override suspend fun verifyEmailCode(email: String, code: String, deviceInfo: String?): AuthTokens =
+        verifyEmailCodeResult().getOrThrow()
 }
 
 private class FakeAuthTokenStorage : AuthTokenStorage {

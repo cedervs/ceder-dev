@@ -6,4 +6,18 @@
     <string name="profile_signed_in_title">Signed in</string>
     <string name="profile_sign_out">Sign out</string>
     <string name="profile_sign_in_error">Sign-in failed. Please try again.</string>
+    <string name="profile_continue_with_email">Continue with email</string>
+    <string name="profile_email_input_label">Email address</string>
+    <string name="profile_send_code">Send code</string>
+    <string name="profile_code_input_label">6-digit code</string>
+    <string name="profile_verify_code">Verify</string>
+    <string name="profile_resend_code">Resend code</string>
+    <string name="profile_resend_code_countdown">Resend code (%1$d s)</string>
+    <string name="profile_use_another_email">Use a different address</string>
+    <string name="profile_back">Back</string>
+    <string name="profile_email_sent_notice">Code sent to %1$s</string>
+    <string name="profile_email_error_resend_cooldown">Please wait before requesting a new code.</string>
+    <string name="profile_email_error_too_many_requests">Too many requests. Please try again later.</string>
+    <string name="profile_email_error_invalid_code">Incorrect or expired code.</string>
+    <string name="profile_email_error_too_many_attempts">Too many attempts. Request a new code.</string>
 </resources>

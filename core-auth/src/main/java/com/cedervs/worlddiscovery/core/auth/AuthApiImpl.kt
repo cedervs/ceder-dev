@@ -29,6 +29,23 @@ class AuthApiImpl(private val apiClient: ApiClient) : AuthApi {
         }
     }
 
+    override suspend fun requestEmailCode(email: String, locale: String?) {
+        request {
+            apiClient.postForStatus(
+                "/v1/auth/email/request-code",
+                RequestEmailCodeRequestDto(email = email, locale = locale),
+            )
+        }
+    }
+
+    override suspend fun verifyEmailCode(email: String, code: String, deviceInfo: String?): AuthTokens =
+        request {
+            apiClient.post<VerifyEmailCodeRequestDto, TokenResponseDto>(
+                "/v1/auth/email/verify-code",
+                VerifyEmailCodeRequestDto(email = email, code = code, deviceInfo = deviceInfo),
+            )
+        }.toAuthTokens()
+
     private suspend inline fun <T> request(block: suspend () -> T): T {
         try {
             return block()
@@ -55,6 +72,19 @@ internal data class RefreshRequestDto(@SerialName("refresh_token") val refreshTo
 
 @Serializable
 internal data class LogoutRequestDto(@SerialName("refresh_token") val refreshToken: String)
+
+@Serializable
+internal data class RequestEmailCodeRequestDto(
+    @SerialName("email") val email: String,
+    @SerialName("locale") val locale: String? = null,
+)
+
+@Serializable
+internal data class VerifyEmailCodeRequestDto(
+    @SerialName("email") val email: String,
+    @SerialName("code") val code: String,
+    @SerialName("device_info") val deviceInfo: String? = null,
+)
 
 @Serializable
 internal data class TokenResponseDto(

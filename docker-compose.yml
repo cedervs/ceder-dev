@@ -33,6 +33,14 @@ services:
       timeout: 5s
       retries: 10
 
+  # Local-only SMTP catcher for dev/test email OTP delivery. Mail sent here never leaves
+  # the machine — read the OTP code in the web UI (http://localhost:8025), never in logs.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025" # web UI
+      - "1025:1025" # SMTP
+
   backend:
     build: ./backend
     env_file:
@@ -42,6 +50,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     volumes:
       - ./backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

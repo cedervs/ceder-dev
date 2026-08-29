@@ -6,4 +6,18 @@
     <string name="profile_signed_in_title">Connecté</string>
     <string name="profile_sign_out">Se déconnecter</string>
     <string name="profile_sign_in_error">Échec de la connexion. Merci de réessayer.</string>
+    <string name="profile_continue_with_email">Continuer avec un email</string>
+    <string name="profile_email_input_label">Adresse email</string>
+    <string name="profile_send_code">Envoyer le code</string>
+    <string name="profile_code_input_label">Code à 6 chiffres</string>
+    <string name="profile_verify_code">Vérifier</string>
+    <string name="profile_resend_code">Renvoyer le code</string>
+    <string name="profile_resend_code_countdown">Renvoyer le code (%1$d s)</string>
+    <string name="profile_use_another_email">Utiliser une autre adresse</string>
+    <string name="profile_back">Retour</string>
+    <string name="profile_email_sent_notice">Code envoyé à %1$s</string>
+    <string name="profile_email_error_resend_cooldown">Merci de patienter avant de redemander un code.</string>
+    <string name="profile_email_error_too_many_requests">Trop de demandes. Réessayez plus tard.</string>
+    <string name="profile_email_error_invalid_code">Code incorrect ou expiré.</string>
+    <string name="profile_email_error_too_many_attempts">Trop de tentatives. Demandez un nouveau code.</string>
 </resources>

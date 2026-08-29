@@ -4,6 +4,7 @@ sqlalchemy>=2.0.36,<2.1
 psycopg[binary]>=3.2.3,<3.3
 alembic>=1.14,<1.15
 pydantic-settings>=2.7,<2.8
+email-validator>=2.2,<2.3
 pyjwt>=2.10,<2.11
 google-auth>=2.37,<2.38
 requests>=2.32,<2.33

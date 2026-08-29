@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 from collections.abc import Callable, Iterator
 
@@ -7,9 +8,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as SASession
 
+from app.auth.email_sender import EmailSender
 from app.auth.google import GoogleIdentity
 from app.db import Base, get_db
-from app.deps import get_google_verifier
+from app.deps import get_email_sender, get_google_verifier
 from app.main import app
 
 TEST_DATABASE_URL = os.environ.get(
@@ -78,3 +80,31 @@ def make_google_identity(subject_id: str | None = None, email: str = "user@examp
         email=email,
         email_verified=True,
     )
+
+
+class FakeEmailSender(EmailSender):
+    """Captures what would have been sent instead of talking to SMTP/Mailpit — tests
+    read the OTP code back out exactly like a human reading the Mailpit UI would (never
+    from a log), by extracting the 6-digit code from the captured body text."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, str, str]] = []  # (to, subject, body)
+
+    def send(self, to: str, subject: str, body: str) -> None:
+        self.sent.append((to, subject, body))
+
+    def latest_code_for(self, email: str) -> str:
+        for to, _subject, body in reversed(self.sent):
+            if to == email:
+                match = re.search(r"\b(\d{6})\b", body)
+                assert match is not None, f"no 6-digit code found in captured email body: {body!r}"
+                return match.group(1)
+        raise AssertionError(f"no email captured for {email!r}")
+
+
+@pytest.fixture()
+def fake_email_sender(client: TestClient) -> Iterator[FakeEmailSender]:
+    sender = FakeEmailSender()
+    app.dependency_overrides[get_email_sender] = lambda: sender
+    yield sender
+    app.dependency_overrides.pop(get_email_sender, None)

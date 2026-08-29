@@ -1,8 +1,19 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 
 class GoogleAuthRequest(BaseModel):
     id_token: str
+    device_info: str | None = None
+
+
+class RequestEmailCodeRequest(BaseModel):
+    email: EmailStr
+    locale: str | None = None
+
+
+class VerifyEmailCodeRequest(BaseModel):
+    email: EmailStr
+    code: str
     device_info: str | None = None
 
 

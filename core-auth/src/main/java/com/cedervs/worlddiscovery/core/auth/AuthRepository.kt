@@ -1,6 +1,7 @@
 package com.cedervs.worlddiscovery.core.auth
 
 import android.content.Context
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +56,20 @@ class AuthRepository(
             applySignedIn(tokens, displayEmail)
         }
     }
+
+    /**
+     * Step 1 of email sign-in: request a 6-digit code be sent to [email]. Does not touch
+     * session state — only [verifyEmailCode] can sign the user in.
+     */
+    suspend fun requestEmailCode(email: String): Result<Unit> =
+        runCatching { authApi.requestEmailCode(email, locale = Locale.getDefault().language) }
+
+    /** Step 2 of email sign-in: verify the code the user received and typed in. */
+    suspend fun verifyEmailCode(email: String, code: String): Result<Unit> =
+        runCatching {
+            val tokens = authApi.verifyEmailCode(email, code, deviceInfo = null)
+            applySignedIn(tokens, displayEmail = email)
+        }
 
     suspend fun logout() {
         tokenStorage.readRefreshToken()?.let { refreshToken ->
