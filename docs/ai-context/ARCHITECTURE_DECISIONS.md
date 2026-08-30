@@ -64,6 +64,13 @@
 **Reason:** global coverage, local detail, correct licensing and versioned corrections.
 **Status:** DECIDED / NOT IMPLEMENTED; ingestion and mapping pipeline ENGINEERING DESIGN REQUIRED.
 
+## Map rendering engine
+**Decision:** MapLibre Native is the selected map rendering engine for the discovery/Map feature.
+**Reason:** open-source (BSD 2-Clause, forked from Mapbox GL Native before its proprietary license change), no telemetry, no per-user/MAU cost, vector-tile GPU rendering suited to a large number of H3 cell overlays, full style control, and no contractual lock-in to a single tile/data vendor — the best fit for World Discovery's offline-first and provider-replaceability principles (`docs/architecture.md` principle 10).
+**Status:** DECIDED / NOT IMPLEMENTED. This decision covers the rendering engine only.
+**Explicitly still open, tracked separately (do not infer a choice from this decision):** the vector tile/style provider, any tile hosting or self-hosting choice, the offline tile download/bundling strategy, and the final Map art direction. See `OPEN_QUESTIONS.md`.
+**Do not change unless:** a concrete technical or product problem with MapLibre Native itself — not with a tile/style provider — justifies revisiting.
+
 ## Social/engagement separation
 **Decision:** private memories, official XP/notable places, community landmarks and geographic discussions are distinct future systems. None may alter exploration percentage or Certified score; participation must not reveal a user's current/precise position.
 **Reason:** preserve privacy and the authority of geographic discovery.

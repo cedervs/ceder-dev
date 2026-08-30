@@ -5,7 +5,7 @@ Only genuine unresolved product decisions belong in the first section. Already-d
 ## NEEDS USER CONFIRMATION
 
 ### Final Map art direction and product-specific interaction
-Known: Map is core, visualizes derived discovered territory, is not a breadcrumb viewer, and keeps trust distinguishable. Confirm the final illustrated/minimal visual language and any product-specific interaction behavior before locking final UX. Provider integration and data flow remain engineering design.
+Known: Map is core, visualizes derived discovered territory, is not a breadcrumb viewer, and keeps trust distinguishable. Confirm the final illustrated/minimal visual language and any product-specific interaction behavior before locking final UX. The rendering engine (MapLibre Native) is already decided (see `ARCHITECTURE_DECISIONS.md`); tile/style provider integration and data flow remain engineering design.
 
 ### Journey product semantics
 Known: Journey presents understandable trips rather than raw GPS traces. Confirm start/end semantics, merging, editing, naming, manual overrides and timeline behavior before implementing the Journey domain.
@@ -29,7 +29,7 @@ Before a social release, confirm moderation, reporting, blocking, spam/abuse pre
 Confirm XP values/selection policy and any spendability; confirm landmark-publication thresholds, anti-duplication and moderation policy. The rule that these systems never change exploration percentage or Certified score is already decided.
 
 ## ENGINEERING DESIGN REQUIRED — do not ask by default
-- map provider abstraction, local-cell read API and rendering pipeline;
+- tile/style provider integration, offline packaging strategy, local-cell read API and rendering pipeline (rendering engine itself is already decided: MapLibre Native — see `ARCHITECTURE_DECISIONS.md`);
 - Easy/Standard/Hard aggregation mechanism consistent with established targets;
 - hybrid geographic ingestion and per-country hierarchy mapping;
 - eligibility resolution pipeline and versioned recomputation;

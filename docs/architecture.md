@@ -23,7 +23,7 @@
 
 **Backend** : Python, FastAPI, PostgreSQL, PostGIS, API versionnée (`/v1/...`).
 
-**Cartographie** : solution vectorielle/illustrée remplaçable (ex. MapLibre envisagé) ; la logique métier ne doit jamais être enfermée dans un fournisseur cartographique particulier.
+**Cartographie** : **MapLibre Native est le moteur de rendu cartographique retenu** (décision actée, voir `docs/ai-context/ARCHITECTURE_DECISIONS.md`). Cette décision porte uniquement sur le moteur de rendu : le fournisseur de tuiles/styles, l'hébergement éventuel et la stratégie finale de téléchargement/empaquetage offline restent à déterminer ; la direction artistique finale de la carte reste ouverte selon son statut existant (`docs/ai-context/OPEN_QUESTIONS.md`). La logique métier ne doit jamais être enfermée dans un fournisseur de tuiles/styles particulier.
 
 **CI/CD** : GitHub Actions. Code source : GitHub (dépôt accessible, pas de générateur no-code fermé).
 
