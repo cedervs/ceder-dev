@@ -23,7 +23,9 @@ android {
 
 dependencies {
     implementation(project(":core-auth"))
+    implementation(project(":core-location"))
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.activity.compose)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

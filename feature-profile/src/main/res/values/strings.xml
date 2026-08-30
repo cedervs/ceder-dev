@@ -20,4 +20,8 @@
     <string name="profile_email_error_too_many_requests">Too many requests. Please try again later.</string>
     <string name="profile_email_error_invalid_code">Incorrect or expired code.</string>
     <string name="profile_email_error_too_many_attempts">Too many attempts. Request a new code.</string>
+    <string name="profile_background_tracking_title">Discover while the app is closed</string>
+    <string name="profile_background_tracking_description">World Discovery can keep discovering places automatically while the app isn\'t open, using infrequent, low-power location checks. Discoveries made this way stay personal and non-certified, exactly like everything else.</string>
+    <string name="profile_background_tracking_requires_foreground">Grant location access on the Map tab first.</string>
+    <string name="profile_background_tracking_permission_denied">Background location permission was denied. You can grant it from system Settings.</string>
 </resources>

@@ -15,6 +15,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.cedervs.worlddiscovery.core.auth.AuthRepository
+import com.cedervs.worlddiscovery.core.location.BackgroundTrackingConsent
 import com.cedervs.worlddiscovery.core.location.SubmitCurrentLocationUseCase
 import com.cedervs.worlddiscovery.feature.journey.JourneyScreen
 import com.cedervs.worlddiscovery.feature.map.MapScreen
@@ -27,6 +28,7 @@ fun WorldDiscoveryApp(
     authRepository: AuthRepository,
     submitCurrentLocationUseCase: SubmitCurrentLocationUseCase,
     onLocationPermissionGranted: () -> Unit,
+    backgroundTrackingConsent: BackgroundTrackingConsent,
 ) {
     val navController = rememberNavController()
 
@@ -66,7 +68,12 @@ fun WorldDiscoveryApp(
             }
             composable(TopLevelDestination.JOURNEY.route) { JourneyScreen() }
             composable(TopLevelDestination.PROGRESS.route) { ProgressScreen() }
-            composable(TopLevelDestination.PROFILE.route) { ProfileScreen(authRepository = authRepository) }
+            composable(TopLevelDestination.PROFILE.route) {
+                ProfileScreen(
+                    authRepository = authRepository,
+                    backgroundTrackingConsent = backgroundTrackingConsent,
+                )
+            }
         }
     }
 }

@@ -17,11 +17,18 @@ import com.cedervs.worlddiscovery.core.discovery.DiscoveredCellRepository
 import com.cedervs.worlddiscovery.core.discovery.H3CellConverter
 import com.cedervs.worlddiscovery.core.discovery.SubmitDiscoveryObservation
 import com.cedervs.worlddiscovery.core.location.AppForegroundTrackingController
+import com.cedervs.worlddiscovery.core.location.BackgroundLocationController
+import com.cedervs.worlddiscovery.core.location.BackgroundLocationObservation
+import com.cedervs.worlddiscovery.core.location.BackgroundLocationRegistrar
+import com.cedervs.worlddiscovery.core.location.BackgroundTrackingConsent
+import com.cedervs.worlddiscovery.core.location.DataStoreBackgroundTrackingConsent
+import com.cedervs.worlddiscovery.core.location.FusedBackgroundLocationRegistrar
 import com.cedervs.worlddiscovery.core.location.FusedLocationProvider
 import com.cedervs.worlddiscovery.core.location.FusedLocationUpdatesProvider
 import com.cedervs.worlddiscovery.core.location.LocationProvider
 import com.cedervs.worlddiscovery.core.location.LocationTrackingSession
 import com.cedervs.worlddiscovery.core.location.LocationUpdatesProvider
+import com.cedervs.worlddiscovery.core.location.SubmitBackgroundLocationObservations
 import com.cedervs.worlddiscovery.core.location.SubmitCurrentLocationUseCase
 import com.cedervs.worlddiscovery.core.location.TrackingSessionState
 import com.cedervs.worlddiscovery.core.network.ApiClient
@@ -63,6 +70,8 @@ class AppContainer(context: Context) {
     private val locationProvider: LocationProvider = FusedLocationProvider(context)
 
     val submitCurrentLocationUseCase = SubmitCurrentLocationUseCase(locationProvider, submitDiscoveryObservation)
+    private val submitBackgroundLocationObservationsUseCase =
+        SubmitBackgroundLocationObservations(submitDiscoveryObservation)
 
     // Process-lifetime scope for the in-session tracking pipeline: AppContainer itself already
     // lives for the whole process, so no separate ViewModel is needed just to own this.
@@ -74,12 +83,51 @@ class AppContainer(context: Context) {
         scope = trackingScope,
     )
 
+    // Off-by-default, explicit user opt-in — never a substitute for the actual OS permission
+    // (see BackgroundLocationController, the only place the two are combined).
+    val backgroundTrackingConsent: BackgroundTrackingConsent = DataStoreBackgroundTrackingConsent(context)
+    private val backgroundLocationRegistrar: BackgroundLocationRegistrar = FusedBackgroundLocationRegistrar(context)
+    private val backgroundLocationController = BackgroundLocationController(
+        consent = backgroundTrackingConsent,
+        registrar = backgroundLocationRegistrar,
+        scope = trackingScope,
+    )
+
     // Application-foreground lifecycle, not any single screen/Activity (docs: tracking must run
     // regardless of which tab is visible, and stop the moment the whole app is backgrounded).
-    private val appForegroundTrackingController = AppForegroundTrackingController(locationTrackingSession)
+    // Owns both foreground and background tracking so the two are never simultaneously active.
+    private val appForegroundTrackingController = AppForegroundTrackingController(
+        foregroundSession = locationTrackingSession,
+        backgroundController = backgroundLocationController,
+    )
 
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(appForegroundTrackingController)
+    }
+
+    /**
+     * Called from `BackgroundLocationReceiver` (see `:app`'s manifest-declared receiver) after a
+     * background delivery arrives — which can carry a batch of several locations, not just one
+     * (see `BACKGROUND_PROVISIONAL`'s `maxUpdateDelayMillis`). Delegates to
+     * [SubmitBackgroundLocationObservations], which preserves each location's own timestamp and
+     * keeps this logic unit-testable independent of `Context`.
+     */
+    suspend fun submitBackgroundLocationObservations(observations: List<BackgroundLocationObservation>) {
+        submitBackgroundLocationObservationsUseCase(observations)
+    }
+
+    /**
+     * Called from `BootCompletedReceiver` (see `:app`'s manifest-declared receiver). A device
+     * reboot does not preserve any `requestLocationUpdates` `PendingIntent` registration, and
+     * `ProcessLifecycleOwner` never reaches STARTED in a process woken only by `BOOT_COMPLETED`
+     * (no Activity has started), so [appForegroundTrackingController] never runs here — this
+     * calls the same [BackgroundLocationController.armSuspending] logic directly. Still only
+     * re-arms if persisted consent is enabled *and* the current OS permission is actually
+     * granted — [BackgroundLocationController] and [FusedBackgroundLocationRegistrar] own those
+     * two checks respectively; this adds no third one.
+     */
+    suspend fun rearmBackgroundTrackingAfterBoot() {
+        backgroundLocationController.armSuspending()
     }
 
     /**

@@ -3,6 +3,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Requested separately from the two permissions above, only via explicit user consent
+         (see ProfileScreen's background-tracking toggle) — never bundled with foreground, and
+         never requested automatically. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Normal (install-time) permission: lets BootCompletedReceiver re-arm background tracking
+         after a reboot without requiring the user to reopen the app first. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name=".WorldDiscoveryApplication"
@@ -21,6 +28,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Targeted only by FusedBackgroundLocationRegistrar's explicit PendingIntent — never
+             invoked by another app, and never via an intent-filter/implicit broadcast. -->
+        <receiver
+            android:name=".BackgroundLocationReceiver"
+            android:exported="false" />
+
+        <!-- BOOT_COMPLETED is exempt from Android 8's implicit-broadcast manifest restriction —
+             see BootCompletedReceiver's doc comment for why this exists. -->
+        <receiver
+            android:name=".BootCompletedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

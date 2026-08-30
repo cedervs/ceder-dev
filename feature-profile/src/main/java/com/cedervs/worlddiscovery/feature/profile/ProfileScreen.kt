@@ -1,18 +1,23 @@
 package com.cedervs.worlddiscovery.feature.profile
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +37,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.cedervs.worlddiscovery.core.auth.AuthRepository
 import com.cedervs.worlddiscovery.core.auth.SessionState
+import com.cedervs.worlddiscovery.core.location.BackgroundTrackingConsent
+import com.cedervs.worlddiscovery.core.location.LocationPermissions
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -44,7 +51,7 @@ private sealed interface EmailStep {
 }
 
 @Composable
-fun ProfileScreen(authRepository: AuthRepository) {
+fun ProfileScreen(authRepository: AuthRepository, backgroundTrackingConsent: BackgroundTrackingConsent) {
     val sessionState by authRepository.sessionState.collectAsState()
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -119,6 +126,68 @@ fun ProfileScreen(authRepository: AuthRepository) {
                     }
                 }
             }
+
+            Spacer(Modifier.height(32.dp))
+            BackgroundTrackingSection(backgroundTrackingConsent)
+        }
+    }
+}
+
+@Composable
+private fun BackgroundTrackingSection(consent: BackgroundTrackingConsent) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val isEnabled by consent.isEnabled.collectAsState(initial = false)
+    var permissionDenied by remember { mutableStateOf(false) }
+    val hasForegroundPermission = LocationPermissions.hasAnyLocationPermission(context)
+
+    val permissionLauncher = rememberLauncherForActivityResult(RequestPermission()) { granted ->
+        if (granted) {
+            permissionDenied = false
+            coroutineScope.launch { consent.setEnabled(true) }
+        } else {
+            permissionDenied = true
+        }
+    }
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.profile_background_tracking_title))
+            Spacer(Modifier.width(8.dp))
+            Switch(
+                checked = isEnabled,
+                enabled = hasForegroundPermission,
+                onCheckedChange = { checked ->
+                    if (!checked) {
+                        coroutineScope.launch { consent.setEnabled(false) }
+                    } else if (LocationPermissions.hasBackgroundLocationPermission(context)) {
+                        permissionDenied = false
+                        coroutineScope.launch { consent.setEnabled(true) }
+                    } else {
+                        permissionLauncher.launch(LocationPermissions.BACKGROUND_LOCATION_PERMISSION)
+                    }
+                },
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = stringResource(R.string.profile_background_tracking_description),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        if (!hasForegroundPermission) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.profile_background_tracking_requires_foreground),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        } else if (permissionDenied) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.profile_background_tracking_permission_denied),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }

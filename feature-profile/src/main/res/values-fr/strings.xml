@@ -20,4 +20,8 @@
     <string name="profile_email_error_too_many_requests">Trop de demandes. Réessayez plus tard.</string>
     <string name="profile_email_error_invalid_code">Code incorrect ou expiré.</string>
     <string name="profile_email_error_too_many_attempts">Trop de tentatives. Demandez un nouveau code.</string>
+    <string name="profile_background_tracking_title">Découvrir même quand l\'application est fermée</string>
+    <string name="profile_background_tracking_description">World Discovery peut continuer à découvrir des lieux automatiquement même quand l\'application n\'est pas ouverte, grâce à des relevés de localisation peu fréquents et peu gourmands en énergie. Les découvertes ainsi enregistrées restent personnelles et non certifiées, comme toutes les autres.</string>
+    <string name="profile_background_tracking_requires_foreground">Autorisez d\'abord la localisation depuis l\'onglet Carte.</string>
+    <string name="profile_background_tracking_permission_denied">L\'autorisation de localisation en arrière-plan a été refusée. Vous pouvez l\'accorder depuis les réglages système.</string>
 </resources>

@@ -18,6 +18,7 @@ class MainActivity : ComponentActivity() {
                     authRepository = appContainer.authRepository,
                     submitCurrentLocationUseCase = appContainer.submitCurrentLocationUseCase,
                     onLocationPermissionGranted = appContainer::retryLocationTrackingAfterPermissionGranted,
+                    backgroundTrackingConsent = appContainer.backgroundTrackingConsent,
                 )
             }
         }

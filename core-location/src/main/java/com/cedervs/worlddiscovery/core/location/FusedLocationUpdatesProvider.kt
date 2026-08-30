@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.callbackFlow
  */
 class FusedLocationUpdatesProvider(
     context: Context,
-    private val config: LocationUpdateConfig = LocationUpdateConfig.PROVISIONAL,
+    private val config: LocationUpdateConfig = LocationUpdateConfig.FOREGROUND_PROVISIONAL,
 ) : LocationUpdatesProvider {
 
     private val appContext = context.applicationContext
