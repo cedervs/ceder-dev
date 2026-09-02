@@ -1,12 +1,29 @@
 # PROJECT_STATUS.md
 
-> **Stable reference:** commit `7a906a9` ---
-> `feat: add background location tracking`
+> This file mixes two distinct kinds of information, deliberately kept
+> apart below:
 >
-> This file describes the approved project state at that commit only. It
-> is intended as context for Codex and Claude Code. Do not assume later
-> work exists unless repository history establishes a newer approved
-> baseline.
+> -   **Phases 1--4 (§6--§16, §18):** describe the approved project state
+>     at the historical Phase 4 code baseline, commit `7a906a9` ---
+>     `feat: add background location tracking`. That code state has not
+>     changed since; do not assume phase 1--4 behavior differs from what
+>     is described there.
+> -   **Documentation/governance commits already in Git, on top of
+>     `7a906a9`, with no further code change:** `1e22ed4`, `ce7732d`,
+>     `7b9294d`, and `d222fd7` (`docs: adopt MapLibre as map rendering
+>     engine`). `d222fd7` is the current, pushed `HEAD` of `main` as of
+>     this document's last update (verify with `git log`/`git rev-parse
+>     HEAD` rather than assuming this stays true later).
+> -   **§17 only:** describes a first Map/MapLibre implementation
+>     increment that exists **solely in the current working tree, on top
+>     of `d222fd7`, and has NOT been committed or pushed.** Do not assume
+>     it exists in a fresh checkout, and do not treat it as part of the
+>     committed/pushed history until repository history says otherwise.
+>
+> This file is intended as context for Codex and Claude Code. Do not
+> assume work beyond what is explicitly and currently described here
+> exists unless repository history, or an explicit newer instruction,
+> establishes it.
 
 ## 1. General objective
 
@@ -49,6 +66,8 @@ Profile. The destination content is still incomplete as described below.
 -   Room for local persistence
 -   H3 4.5.0 / `h3-android`
 -   canonical H3 resolution: **12**
+-   MapLibre Native (Android SDK, OpenGL variant) as the map rendering
+    engine — tile/style provider still undecided
 -   Google Play services Fused Location Provider
 -   Android DataStore for persisted background-tracking consent
 -   existing authentication layer with Google Sign-In and email OTP
@@ -127,7 +146,9 @@ architectural work distinct from the existing authentication backend.
 
 MapLibre/OpenStreetMap are part of the intended mapping direction; do
 not infer that the final discovery map is already implemented at this
-commit.
+commit. A first Map increment integrating MapLibre Native now exists in
+the working tree, uncommitted — see §17 for its actual scope and
+pending on-device validation.
 
 ## 6. Completed phases
 
@@ -578,44 +599,212 @@ The discovery/location foundation exists, but the full visual World
 Discovery map and geographic hierarchy are not yet the completed
 product.
 
-## 17. Next planned phase
+## 17. Map/discovery visualization layer --- first increment (uncommitted)
 
-The next intended phase is the **map/discovery visualization layer**,
-built on the stable local discovery and location foundation.
+**Status: PARTIALLY IMPLEMENTED, not yet committed.** A first Map
+increment exists in the working tree on top of `d222fd7`, the current
+pushed `HEAD` of `main` (itself documentation-only on top of the
+`7a906a9` Phase 1--4 code baseline). Neither `7a906a9` nor `d222fd7` has
+moved (see §19) --- this increment has not been committed or pushed.
 
-Objectives:
+Implemented pipeline:
 
--   expose existing locally stored discovery cells through the Map
-    experience;
--   render discovered areas;
--   preserve canonical H3 resolution 12;
--   keep certified/non-certified state distinguishable;
--   do not add raw-GPS persistence merely for rendering;
--   keep collection logic independent from rendering;
--   establish a clean path toward World → Continent → Country → sublevel
-    exploration;
--   avoid prematurely introducing backend certification/synchronization
-    unless the phase is explicitly re-scoped.
+``` text
+Room `discovered_cells`
+  → RoomDiscoveredCellRepository.observeAll() (Flow)
+  → ObserveDiscoveredCellGeometries (H3 cell → boundary geometry)
+  → MapScreen
+  → DiscoveryMapView
+  → MapLibre GeoJsonSource / FillLayer
+```
 
-Before implementation, inspect the actual `feature-map`, repository and
-database APIs at `7a906a9` and produce a focused plan. Do not invent
-APIs.
+-   `DiscoveredCellRepository` now exposes a reactive
+    `observeAll(): Flow<List<DiscoveredCell>>`, backed by Room's own
+    invalidation tracking (`DiscoveredCellDao.observeAll()`), in
+    addition to the existing `find`/`upsert`.
+-   Rendered geometries are derived on the fly from the existing
+    `discovered_cells` rows via H3 (`H3CellConverter.cellBoundary`);
+    there is no second persisted source of truth for geometry.
+-   MapLibre Native (OpenGL Android SDK variant) is integrated as the
+    rendering engine and consumes that Flow through `DiscoveryMapView`,
+    styled with a data-driven fill color keyed on Certified/Non-certified
+    --- a provisional visual distinction, not final art direction.
+-   The current map style, `https://demotiles.maplibre.org/style.json`,
+    is a temporary, keyless, isolated development style used only to
+    unblock technical integration. It is not a product/provider
+    decision. The vector tile/style provider, tile hosting, and offline
+    packaging strategy remain undecided (see `ARCHITECTURE_DECISIONS.md`,
+    `OPEN_QUESTIONS.md`); final art direction remains NEEDS USER
+    CONFIRMATION.
+-   The map is read-only for this increment: no clustering, no camera
+    system, no Progress/percentage overlays, no
+    ELIGIBLE/RESTRICTED_EXCLUDED/UNKNOWN handling, no backend sync.
+-   The existing user-triggered one-shot location test button is
+    preserved unchanged alongside the map.
+-   `MapView`'s lifecycle is explicitly managed
+    (`MapViewLifecycleController`), including teardown paths not covered
+    by a bare `DisposableEffect` (Navigation-Compose disposal without a
+    host lifecycle transition) and `onLowMemory()` forwarding.
+-   Invalid/malformed H3 cells are detected via
+    `H3CellConverter.isValidCell(...)` and skipped individually before
+    geometry conversion; any other, genuinely unexpected exception is not
+    caught and propagates normally.
+-   Antimeridian (±180°) ring unwrapping is implemented and covered by
+    unit tests using real H3-captured boundary data.
+-   Canonical H3 resolution 12 is preserved; no raw-GPS persistence was
+    added for rendering.
 
-Current factual constraints at this baseline:
+Validated locally (JDK 17, real Gradle, on the developer's machine):
 
--   `DiscoveredCellDao.getAll()` exists as a one-shot Room query;
--   `DiscoveredCellRepository` currently exposes only `find` and
-    `upsert`;
--   no reactive local-cell read API intended for `feature-map` exists at
-    the repository boundary;
--   `MapScreen` is a location-test placeholder with no map/rendering
-    engine.
+``` powershell
+.\gradlew :core-discovery-engine:test --console=plain
+.\gradlew :core-database:testDebugUnitTest --console=plain
+.\gradlew :core-location:testDebugUnitTest --console=plain
+.\gradlew :app:assembleDebug --console=plain
+git diff --check
+```
 
-These facts do not prescribe the phase-5 design.
+All reported BUILD SUCCESSFUL.
+
+**State at completion of this initial increment (historical — see the
+time-scoping note immediately below before relying on this list):**
+
+**Explicitly PENDING --- not yet physically validated on a device, as of
+this increment:**
+
+-   real MapLibre rendering on a physical phone;
+-   correct style loading on-device;
+-   discovered cells actually rendering at the correct location;
+-   live map update while a discovery happens;
+-   real foreground/background behavior with the map on screen;
+-   Certified/Non-certified visual distinction on-device with real data;
+-   MapLibre Native's actual runtime interpretation of
+    antimeridian-crossing geometry (the unwrapping math itself is
+    unit-tested; on-device rendering of it is not).
+
+Do not treat this increment as a physically validated Map feature until
+that on-device validation happens and is recorded here.
+
+**Time-scoping note (do not confuse this historical state with the current
+one):** the "PENDING" list above describes this increment's own state at
+the time it was written, before any physical device testing had occurred.
+It was **later superseded**: real MapLibre core rendering, real style
+loading, and correct on-screen placement of rendered geometry (among
+other items) were subsequently physically validated on a Samsung device —
+see the Phase F/G3 section below and `docs/ai-context/ARCHITECTURE_DECISIONS.md`'s
+"Map rendering engine" entry for the authoritative, current, itemized
+physical-validation record. Live map update during a fresh discovery,
+Certified/Non-certified visual distinction with real data, and physical
+antimeridian-crossing rendering remain genuinely unvalidated as of the
+Phase F/G3 record — do not assume those specific items are covered just
+because other items on this list have since been validated.
+
+Remaining future work beyond this increment: full clustering, camera
+system, Progress/percentage overlays, ELIGIBLE/RESTRICTED_EXCLUDED/UNKNOWN
+handling, backend sync, community features, souvenirs, POI, final
+political borders, full Certified mode, final visual design, and the
+World → Continent → Country → sublevel exploration hierarchy. Avoid
+prematurely introducing backend certification/synchronization unless a
+future phase is explicitly re-scoped for it.
+
+### Phase F/G3 — France country-fill rendering (OSM-derived), PHYSICALLY VALIDATED
+
+**Status: IMPLEMENTED and PHYSICALLY VALIDATED** on a real Samsung device
+(2026-09-02), on top of the increment above, still uncommitted.
+
+**IMPLEMENTED / PHYSICALLY VALIDATED:**
+
+-   mainland France's visited-country **fill** now renders from an
+    OSM-derived polygon (OSM relation `1403916`, retrieved via
+    `polygons.openstreetmap.fr`, bundled as
+    `feature-map/src/main/resources/geo/france-mainland-osm-render.json` —
+    see `tools/geo/README.md`), replacing `geoBoundaries` for *rendering*
+    only. Measured (point-to-segment, real deployed OpenFreeMap/OpenMapTiles
+    tiles) at ~6-15m median divergence at Geneva/Spain/Italy/Andorra/Monaco,
+    versus up to ~11.7km for `geoBoundaries` at the same locations.
+-   the existing OpenMapTiles `water`-layer masking (fill inserted below the
+    basemap's own water layer) continues to handle coastline appearance —
+    unchanged this phase, confirmed still correct on-device (Brittany).
+-   the existing OpenMapTiles `admin_level=2` boundary `LineLayer`
+    (`basemap-aligned-france-border-prototype`) continues to render the
+    visible terrestrial outline — unchanged this phase, confirmed still
+    correct on-device.
+-   rendering geometry and classification geometry are now explicitly
+    separate for this prototype: classification (`geoBoundaries`, whether a
+    discovery counts as "in France") is untouched and lives in
+    `core-discovery-engine`; the new OSM rendering polygon lives in
+    `feature-map`, carries no classification meaning (no area id, no
+    component index), and only ever changes what shape an *already-visited*
+    mainland draws as.
+-   Android resource packaging/loading of a `feature-map`
+    (`com.android.library`) module's `src/main/resources` JVM-style
+    resource, via plain classloader `getResourceAsStream` (the same
+    technique `core-discovery-engine` already used for its own
+    classification resource) — previously an open risk, now **physically
+    validated**: the real Samsung build loaded and rendered the bundled
+    polygon correctly.
+-   Corsica and French Guiana are unaffected — still render their own
+    `geoBoundaries` component geometry, confirmed on-device.
+-   H3 rendering and the current-position marker are unaffected, confirmed
+    on-device.
+
+**Known, documented, accepted minor limitations (not redesigned this
+round):**
+
+-   `queryRenderedFeatures` click-hit-testing on the country-overlay fill
+    layer can theoretically still register a hit on a visually
+    water-masked part of the underlying polygon (the mask is a *visual*
+    layer-order trick, not a geometric clip) — no problem observed in
+    physical testing; not redesigned.
+-   the click/focus camera-fit (`CountryOverlayCameraFit.kt`) still fits to
+    the *classification* component's bounds, not the new rendering
+    polygon's own bounds — assessed PASS for this prototype (no reported
+    navigation regression); not redesigned.
+-   at far country/world zoom, the visited-country orange fill is
+    currently considered visually too subtle — a real, tracked UX gap
+    (opacity/color unchanged this round; a future round should
+    increase visual prominence so visited countries read as immediately
+    distinguishable from unvisited ones).
+-   the current OpenFreeMap Liberty basemap style is provisional and
+    considered visually busy — a future basemap/style redesign remains
+    open, not attempted here.
+
+**DECIDED / NOT IMPLEMENTED — target architecture for later rounds, not
+built now:**
+
+-   **Worldwide generalization.** The France OSM-relation-fill approach is
+    a validated *prototype*, not a worldwide-final architecture. The
+    target shape for every country:
+    canonical discovery truth (H3) → geographic visited classification
+    (offline administrative/reference geometry) → visual administrative
+    rendering (basemap-compatible geometry) → coastline
+    (basemap-compatible water geometry/masking where appropriate) →
+    visible administrative boundaries (basemap-compatible boundary
+    geometry where available). No worldwide data or pipeline is built yet.
+-   **Multi-level geographic navigation.** The product must eventually
+    support World → Country → Administrative Level 1 → Administrative
+    Level 2 → real discovered local areas → precise H3 (e.g. for France:
+    World → France → Nouvelle-Aquitaine → visited département(s) → actual
+    discovered areas → H3). Only actually-visited administrative areas
+    receive visited styling at each level; administrative hierarchy is
+    country-aware since structures differ worldwide. Not implemented this
+    round — see `docs/ai-context/OPEN_QUESTIONS.md`'s existing "hybrid
+    geographic ingestion and per-country hierarchy mapping" entry.
+-   **Orange means VISITED/PRESENCE, never "fully explored," "100%
+    completed," or "full geographic coverage."** Exact exploration
+    percentage remains derived exclusively from canonical H3 discovery
+    data — this rule is unchanged and must be preserved by any future
+    admin-hierarchy work.
 
 ## 18. Constraints for Codex / Claude Code
 
-1.  Treat `7a906a9` as the stable baseline.
+1.  Treat `7a906a9` as the historical Phase 1--4 code baseline (§6--§16)
+    and `d222fd7` as the current pushed `HEAD` of `main` (documentation
+    only on top of `7a906a9`, no further code change). Treat §17's
+    Map/MapLibre increment as uncommitted working-tree state layered on
+    top of `d222fd7`, not yet part of either baseline — verify with
+    `git log`/`git rev-parse HEAD` rather than assuming this stays
+    current.
 2.  Inspect existing code before replacing architecture.
 3.  Do not rewrite working phase 1--4 behavior without a concrete
     reason.
@@ -649,13 +838,32 @@ These facts do not prescribe the phase-5 design.
 
 ## 19. Stable baseline
 
+Phase 1--4 code baseline (historical reference for §6--§16):
+
 ``` text
 branch: main
-stable commit: 7a906a9
+commit: 7a906a9
 commit message: feat: add background location tracking
 ```
 
-`7a906a9` was pushed successfully to `main`.
+`7a906a9` was pushed successfully to `main` and remains the reference
+commit for the completed Phases 1--4. No code changed between `7a906a9`
+and the current pushed `HEAD` below — only documentation/governance
+commits landed in between.
 
-All later work is post-phase-4 work unless repository history
-establishes a newer explicitly approved stable reference.
+Current pushed `HEAD` of `main` (documentation only):
+
+``` text
+branch: main
+commit: d222fd7
+commit message: docs: adopt MapLibre as map rendering engine
+```
+
+Verify this is still accurate with `git log`/`git rev-parse HEAD` rather
+than assuming it stays current as the repository evolves.
+
+Working tree beyond `d222fd7`: the Map/MapLibre implementation increment
+described in §17 exists only in the current working tree. It is **not**
+part of `d222fd7` or any pushed commit, and must not be assumed to exist
+in a fresh checkout until repository history establishes a newer pushed
+baseline that supersedes this section.

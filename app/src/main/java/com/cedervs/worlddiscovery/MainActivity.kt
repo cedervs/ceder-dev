@@ -19,6 +19,8 @@ class MainActivity : ComponentActivity() {
                     submitCurrentLocationUseCase = appContainer.submitCurrentLocationUseCase,
                     onLocationPermissionGranted = appContainer::retryLocationTrackingAfterPermissionGranted,
                     backgroundTrackingConsent = appContainer.backgroundTrackingConsent,
+                    observeMapReadState = appContainer.observeMapReadState,
+                    currentLocationObservation = appContainer.currentLocationObservation,
                 )
             }
         }

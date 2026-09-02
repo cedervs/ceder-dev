@@ -28,8 +28,19 @@ class AuthRepository(
     @Volatile
     private var accessToken: String? = null
 
-    /** Call once at process start: silently resumes a session from the stored refresh token. */
+    /**
+     * Call once at process start: silently resumes a session from the stored refresh token.
+     *
+     * Idempotent by design — a no-op unless [sessionState] is still [SessionState.Unknown]. A
+     * caller (e.g. `ProfileScreen` recomposing) may call this again during an already-established
+     * session; without this guard, that would re-run the refresh-token exchange and could replace
+     * an existing `SignedIn(email)` with `SignedIn(null)` for the exact same logical session —
+     * emitting a spurious [SessionState] change that downstream observers (see `AppContainer`'s
+     * `MapNavigationStateResetter` wiring) would otherwise mistake for a real session transition.
+     */
     suspend fun initialize() {
+        if (_sessionState.value != SessionState.Unknown) return
+
         val storedRefreshToken = tokenStorage.readRefreshToken()
         if (storedRefreshToken == null) {
             _sessionState.value = SessionState.SignedOut

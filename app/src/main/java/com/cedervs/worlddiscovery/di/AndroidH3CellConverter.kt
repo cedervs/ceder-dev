@@ -36,4 +36,21 @@ class AndroidH3CellConverter(
         val h3Index = h3Core.latLngToCellAddress(coordinate.latitude, coordinate.longitude, resolution)
         return CanonicalCell(h3Index = h3Index, resolution = resolution)
     }
+
+    override fun cellBoundary(cell: CanonicalCell): List<Coordinate> =
+        h3Core.cellToBoundary(cell.h3Index).map { latLng -> Coordinate(latLng.lat, latLng.lng) }
+
+    override fun cellCenter(cell: CanonicalCell): Coordinate {
+        val latLng = h3Core.cellToLatLng(cell.h3Index)
+        return Coordinate(latLng.lat, latLng.lng)
+    }
+
+    /** See [H3JavaCellConverter.isValidCell] — same library, same confirmed
+     * `NumberFormatException`-on-unparseable-input behavior, same narrow catch. */
+    override fun isValidCell(cell: CanonicalCell): Boolean =
+        try {
+            h3Core.isValidCell(cell.h3Index)
+        } catch (e: NumberFormatException) {
+            false
+        }
 }

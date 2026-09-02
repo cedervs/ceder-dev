@@ -1,14 +1,19 @@
 package com.cedervs.worlddiscovery.core.auth
 
 import android.content.Context
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.Mockito.mock
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AuthRepositoryTest {
 
     private lateinit var fakeAuthApi: FakeAuthApi
@@ -52,6 +57,64 @@ class AuthRepositoryTest {
 
         assertEquals(SessionState.SignedOut, repository.sessionState.value)
         assertNull(fakeTokenStorage.readRefreshToken())
+    }
+
+    @Test
+    fun `initialize while already SignedIn -- such as a ProfileScreen recomposition calling it again -- is a strict no-op`() = runTest {
+        fakeAuthProvider.result = AuthProviderResult.Success(idToken = "google-id-token", displayEmail = "user@example.com")
+        fakeAuthApi.loginResult = { Result.success(AuthTokens("access-1", "refresh-1", 900)) }
+        repository.signInWithGoogle(context)
+        val stateAfterSignIn = repository.sessionState.value
+        assertEquals(SessionState.SignedIn("user@example.com"), stateAfterSignIn)
+
+        // If the guard were missing, this would look like a fresh refresh, replacing the email
+        // with null -- exactly the regression this test exists to catch.
+        fakeAuthApi.refreshResult = { Result.success(AuthTokens("new-access", "new-refresh", 900)) }
+
+        val recordedStates = mutableListOf<SessionState>()
+        val collectorJob = launch { repository.sessionState.collect { recordedStates.add(it) } }
+        // runTest's dispatcher is lazy: `launch` only schedules the collector, it doesn't run it
+        // yet. runCurrent() lets it actually start and receive the StateFlow's initial replayed
+        // value before initialize() runs below -- otherwise the assertion after can't distinguish
+        // "no collector ran yet" from "no new emission happened".
+        runCurrent()
+
+        repository.initialize()
+
+        collectorJob.cancel()
+
+        assertEquals("initialize() must never call the refresh API for an already-established session", 0, fakeAuthApi.refreshCallCount)
+        assertSame("the SessionState object itself must never be reassigned", stateAfterSignIn, repository.sessionState.value)
+        assertEquals("user@example.com", (repository.sessionState.value as SessionState.SignedIn).displayEmail)
+        assertEquals("the original refresh token must be left untouched, never rotated", "refresh-1", fakeTokenStorage.readRefreshToken())
+        assertEquals(
+            "no new SessionState transition may be emitted -- only the initial replay of the current value",
+            listOf(stateAfterSignIn),
+            recordedStates,
+        )
+    }
+
+    @Test
+    fun `initialize while already SignedOut is also a strict no-op`() = runTest {
+        repository.initialize() // Unknown -> SignedOut (no stored token)
+        assertEquals(SessionState.SignedOut, repository.sessionState.value)
+        val readCountAfterFirstInitialize = fakeTokenStorage.readRefreshTokenCallCount
+
+        val recordedStates = mutableListOf<SessionState>()
+        val collectorJob = launch { repository.sessionState.collect { recordedStates.add(it) } }
+        runCurrent() // let the collector actually start and receive the initial replayed value
+
+        repository.initialize()
+
+        collectorJob.cancel()
+
+        assertEquals(SessionState.SignedOut, repository.sessionState.value)
+        assertEquals(
+            "the guard must return before ever consulting token storage again",
+            readCountAfterFirstInitialize,
+            fakeTokenStorage.readRefreshTokenCallCount,
+        )
+        assertEquals(listOf<SessionState>(SessionState.SignedOut), recordedStates)
     }
 
     @Test
@@ -160,11 +223,16 @@ private class FakeAuthApi : AuthApi {
     var logoutAction: (String) -> Unit = {}
     var requestEmailCodeAction: (String, String?) -> Unit = { _, _ -> }
     var verifyEmailCodeResult: () -> Result<AuthTokens> = { Result.failure(AuthApiException("not_configured")) }
+    var refreshCallCount = 0
+        private set
 
     override suspend fun loginWithGoogle(idToken: String, deviceInfo: String?): AuthTokens =
         loginResult().getOrThrow()
 
-    override suspend fun refresh(refreshToken: String): AuthTokens = refreshResult().getOrThrow()
+    override suspend fun refresh(refreshToken: String): AuthTokens {
+        refreshCallCount++
+        return refreshResult().getOrThrow()
+    }
 
     override suspend fun logout(refreshToken: String) {
         logoutAction(refreshToken)
@@ -180,12 +248,17 @@ private class FakeAuthApi : AuthApi {
 
 private class FakeAuthTokenStorage : AuthTokenStorage {
     private var token: String? = null
+    var readRefreshTokenCallCount = 0
+        private set
 
     override fun saveRefreshToken(token: String) {
         this.token = token
     }
 
-    override fun readRefreshToken(): String? = token
+    override fun readRefreshToken(): String? {
+        readRefreshTokenCallCount++
+        return token
+    }
 
     override fun clearRefreshToken() {
         token = null
