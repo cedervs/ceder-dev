@@ -2,7 +2,6 @@ package com.cedervs.worlddiscovery.core.location
 
 import android.content.Context
 import android.location.LocationManager
-import com.cedervs.worlddiscovery.core.discovery.Coordinate
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
@@ -38,10 +37,10 @@ class FusedLocationProvider(context: Context) : LocationProvider {
                 .await()
                 ?: return LocationAcquisitionResult.LocationUnavailable
 
-            val coordinate = runCatching { Coordinate(location.latitude, location.longitude) }.getOrNull()
+            val observation = location.toLocationObservation()
                 ?: return LocationAcquisitionResult.LocationUnavailable
 
-            LocationAcquisitionResult.Success(coordinate)
+            LocationAcquisitionResult.Success(observation)
         } catch (e: SecurityException) {
             LocationAcquisitionResult.PermissionDenied
         } catch (e: CancellationException) {

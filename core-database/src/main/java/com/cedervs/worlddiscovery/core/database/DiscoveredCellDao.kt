@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface DiscoveredCellDao {
@@ -23,6 +24,13 @@ interface DiscoveredCellDao {
 
     @Query("SELECT * FROM discovered_cells")
     suspend fun getAll(): List<DiscoveredCellEntity>
+
+    /** Reactive read, re-emitting on every change to `discovered_cells` (Room's own Flow
+     * invalidation tracking — no manual refresh trigger needed). Used by
+     * [com.cedervs.worlddiscovery.core.discovery.ObserveDiscoveredCellGeometries] via
+     * [RoomDiscoveredCellRepository]; never called directly outside this module. */
+    @Query("SELECT * FROM discovered_cells")
+    fun observeAll(): Flow<List<DiscoveredCellEntity>>
 
     @Query("SELECT COUNT(*) FROM discovered_cells")
     suspend fun count(): Int

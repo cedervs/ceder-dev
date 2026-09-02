@@ -1,6 +1,7 @@
 package com.cedervs.worlddiscovery.core.discovery
 
 import java.time.Instant
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -109,6 +110,15 @@ class SubmitDiscoveryObservationTest {
 private class FakeH3CellConverter(var mapping: Map<Coordinate, CanonicalCell>) : H3CellConverter {
     override fun toCanonicalCell(coordinate: Coordinate): CanonicalCell =
         mapping[coordinate] ?: error("No fake mapping configured for $coordinate")
+
+    override fun cellBoundary(cell: CanonicalCell): List<Coordinate> =
+        error("not expected to be called in this test")
+
+    override fun cellCenter(cell: CanonicalCell): Coordinate =
+        error("not expected to be called in this test")
+
+    override fun isValidCell(cell: CanonicalCell): Boolean =
+        error("not expected to be called in this test")
 }
 
 private class FakeDiscoveredCellRepository : DiscoveredCellRepository {
@@ -120,6 +130,8 @@ private class FakeDiscoveredCellRepository : DiscoveredCellRepository {
     override suspend fun upsert(discoveredCell: DiscoveredCell) {
         storage[discoveredCell.cell to discoveredCell.trustStatus] = discoveredCell
     }
+
+    override fun observeAll(): Flow<List<DiscoveredCell>> = error("not expected to be called in this test")
 
     fun all(): List<DiscoveredCell> = storage.values.toList()
 }

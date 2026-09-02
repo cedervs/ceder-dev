@@ -129,6 +129,15 @@ private class NeverEmittingLocationUpdatesProvider : LocationUpdatesProvider {
 private class UnusedCellConverter : H3CellConverter {
     override fun toCanonicalCell(coordinate: Coordinate): CanonicalCell =
         error("not expected to be called in this test")
+
+    override fun cellBoundary(cell: CanonicalCell): List<Coordinate> =
+        error("not expected to be called in this test")
+
+    override fun cellCenter(cell: CanonicalCell): Coordinate =
+        error("not expected to be called in this test")
+
+    override fun isValidCell(cell: CanonicalCell): Boolean =
+        error("not expected to be called in this test")
 }
 
 private class UnusedCellRepository : DiscoveredCellRepository {
@@ -138,6 +147,8 @@ private class UnusedCellRepository : DiscoveredCellRepository {
     override suspend fun upsert(discoveredCell: DiscoveredCell) {
         error("not expected to be called in this test")
     }
+
+    override fun observeAll(): Flow<List<DiscoveredCell>> = error("not expected to be called in this test")
 }
 
 private class FakeControllerConsent : BackgroundTrackingConsent {

@@ -1,7 +1,9 @@
 package com.cedervs.worlddiscovery.core.discovery
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -55,5 +57,65 @@ class H3JavaCellConverterTest {
         val newYork = converter.toCanonicalCell(Coordinate(latitude = 40.7128, longitude = -74.0060))
 
         assertNotEquals(paris, newYork)
+    }
+
+    @Test
+    fun `known cell boundary matches the real H3 library's output`() {
+        // Captured by running the real com.uber:h3:4.5.0 H3Core.cellToBoundary directly outside
+        // Gradle — same discipline as the reference vector above, not asserted from memory.
+        val parisCell = CanonicalCell(h3Index = "8c1fb46625551ff", resolution = 12)
+
+        val boundary = converter.cellBoundary(parisCell)
+
+        assertEquals(6, boundary.size)
+        assertEquals(Coordinate(latitude = 48.85675387511219, longitude = 2.3521627015914643), boundary[0])
+        assertEquals(Coordinate(latitude = 48.85668532108757, longitude = 2.352264496729447), boundary[5])
+    }
+
+    @Test
+    fun `cell boundary is not closed (first vertex is not repeated at the end)`() {
+        val parisCell = CanonicalCell(h3Index = "8c1fb46625551ff", resolution = 12)
+
+        val boundary = converter.cellBoundary(parisCell)
+
+        assertNotEquals(boundary.first(), boundary.last())
+    }
+
+    @Test
+    fun `converting the same cell boundary twice is deterministic`() {
+        val parisCell = CanonicalCell(h3Index = "8c1fb46625551ff", resolution = 12)
+
+        val first = converter.cellBoundary(parisCell)
+        val second = converter.cellBoundary(parisCell)
+
+        assertEquals(first, second)
+    }
+
+    @Test
+    fun `isValidCell is true for a genuine H3 cell index`() {
+        val parisCell = CanonicalCell(h3Index = "8c1fb46625551ff", resolution = 12)
+
+        assertTrue(converter.isValidCell(parisCell))
+    }
+
+    @Test
+    fun `isValidCell is false for a real but semantically invalid H3 index`() {
+        // Verified directly against the real library: this is a syntactically valid hex string
+        // that H3Core.isValidCell itself cleanly returns false for (no exception) — a genuine
+        // invalid index, not an artificial one.
+        val invalidCell = CanonicalCell(h3Index = "ffffffffffffffff", resolution = 12)
+
+        assertFalse(converter.isValidCell(invalidCell))
+    }
+
+    @Test
+    fun `isValidCell is false, not throwing, for a non-hexadecimal h3Index`() {
+        // Verified directly against the real library: H3Core.isValidCell("not-a-real-h3-index")
+        // throws NumberFormatException internally (it isn't parseable as hex at all) rather than
+        // returning false — H3JavaCellConverter.isValidCell must still behave as a pure,
+        // never-throwing predicate for its own callers.
+        val corruptCell = CanonicalCell(h3Index = "not-a-real-h3-index", resolution = 12)
+
+        assertFalse(converter.isValidCell(corruptCell))
     }
 }
