@@ -75,7 +75,25 @@ class DiscoveredCellMergerTest {
     }
 
     @Test
-    fun `a newer observation does update provenance`() {
+    fun `a newer observation does update provenance when neither side is OBSERVED-RECONSTRUCTED`() {
+        // IMPORTED/MANUAL_NON_CERTIFIED keep the plain chronological rule — no priority is
+        // defined between them; this only demonstrates the generic "newer wins" behavior using a
+        // pair unaffected by the OBSERVED/RECONSTRUCTED exception below.
+        val first = DiscoveredCellMerger.merge(
+            null,
+            event(Instant.parse("2026-01-01T10:00:00Z"), provenance = Provenance.MANUAL_NON_CERTIFIED),
+        )
+
+        val merged = DiscoveredCellMerger.merge(
+            first,
+            event(Instant.parse("2026-01-05T10:00:00Z"), provenance = Provenance.IMPORTED),
+        )
+
+        assertEquals(Provenance.IMPORTED, merged.provenance)
+    }
+
+    @Test
+    fun `an existing OBSERVED record is never demoted by an incoming chronologically newer RECONSTRUCTED event`() {
         val first = DiscoveredCellMerger.merge(
             null,
             event(Instant.parse("2026-01-01T10:00:00Z"), provenance = Provenance.OBSERVED),
@@ -86,7 +104,55 @@ class DiscoveredCellMergerTest {
             event(Instant.parse("2026-01-05T10:00:00Z"), provenance = Provenance.RECONSTRUCTED),
         )
 
-        assertEquals(Provenance.RECONSTRUCTED, merged.provenance)
+        assertEquals(Provenance.OBSERVED, merged.provenance)
+    }
+
+    @Test
+    fun `an existing OBSERVED record is never demoted by an incoming chronologically older RECONSTRUCTED event`() {
+        val first = DiscoveredCellMerger.merge(
+            null,
+            event(Instant.parse("2026-01-05T10:00:00Z"), provenance = Provenance.OBSERVED),
+        )
+
+        val merged = DiscoveredCellMerger.merge(
+            first,
+            event(Instant.parse("2026-01-01T10:00:00Z"), provenance = Provenance.RECONSTRUCTED),
+        )
+
+        assertEquals(Provenance.OBSERVED, merged.provenance)
+    }
+
+    @Test
+    fun `an existing RECONSTRUCTED record becomes OBSERVED when a chronologically newer OBSERVED event arrives`() {
+        val first = DiscoveredCellMerger.merge(
+            null,
+            event(Instant.parse("2026-01-01T10:00:00Z"), provenance = Provenance.RECONSTRUCTED),
+        )
+
+        val merged = DiscoveredCellMerger.merge(
+            first,
+            event(Instant.parse("2026-01-05T10:00:00Z"), provenance = Provenance.OBSERVED),
+        )
+
+        assertEquals(Provenance.OBSERVED, merged.provenance)
+    }
+
+    @Test
+    fun `an existing RECONSTRUCTED record becomes OBSERVED even when the incoming OBSERVED event is chronologically older`() {
+        // This is the case the plain chronological rule alone would get wrong: the incoming event
+        // is older, so rule 4 alone would keep the existing (RECONSTRUCTED) provenance — the
+        // OBSERVED/RECONSTRUCTED exception must still win regardless.
+        val first = DiscoveredCellMerger.merge(
+            null,
+            event(Instant.parse("2026-01-05T10:00:00Z"), provenance = Provenance.RECONSTRUCTED),
+        )
+
+        val merged = DiscoveredCellMerger.merge(
+            first,
+            event(Instant.parse("2026-01-01T10:00:00Z"), provenance = Provenance.OBSERVED),
+        )
+
+        assertEquals(Provenance.OBSERVED, merged.provenance)
     }
 
     @Test

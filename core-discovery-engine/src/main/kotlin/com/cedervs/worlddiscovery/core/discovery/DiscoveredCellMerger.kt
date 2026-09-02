@@ -12,7 +12,14 @@ package com.cedervs.worlddiscovery.core.discovery
  * 3. `lastObservedAt` = max(existing, event timestamp) — order-independent, symmetric to (2).
  * 4. `provenance` is taken from whichever of the two observations is chronologically the most
  *    recent (ties broken in favor of the incoming event) — it always reflects "how was the
- *    latest known observation of this cell obtained", not the first one.
+ *    latest known observation of this cell obtained", not the first one. **Exception**: an
+ *    [Provenance.OBSERVED] / [Provenance.RECONSTRUCTED] pair never follows this chronological
+ *    rule — `OBSERVED` always wins, regardless of arrival order or which one is chronologically
+ *    newer (docs/discovery-engine.md §23/§24: a direct observation is strictly more trustworthy
+ *    than an inferred one, and must never be demoted just because a later reconstruction happens
+ *    to also pass through the same cell). No priority is defined here between [Provenance.IMPORTED]
+ *    or [Provenance.MANUAL_NON_CERTIFIED] and anything else — those keep the plain chronological
+ *    rule above.
  * 5. `engineVersion` and `h3Resolution` are fixed at first creation and never overwritten by a
  *    later merge. Per docs/discovery-engine.md §16, a version/resolution change is only ever
  *    applied by a future, explicit, versioned recompute job — never as an implicit side effect
@@ -49,7 +56,23 @@ object DiscoveredCellMerger {
         return existing.copy(
             firstDiscoveredAt = minOf(existing.firstDiscoveredAt, event.timestamp),
             lastObservedAt = maxOf(existing.lastObservedAt, event.timestamp),
-            provenance = if (eventIsAtLeastAsRecent) event.provenance else existing.provenance,
+            provenance = resolvedProvenance(existing.provenance, event.provenance, eventIsAtLeastAsRecent),
         )
+    }
+
+    /** Rule 4's exception: an OBSERVED/RECONSTRUCTED pair, in either combination, always resolves
+     * to OBSERVED — never the plain "chronologically most recent wins" rule used for every other
+     * provenance pair. */
+    private fun resolvedProvenance(
+        existingProvenance: Provenance,
+        eventProvenance: Provenance,
+        eventIsAtLeastAsRecent: Boolean,
+    ): Provenance {
+        val isObservedReconstructedPair =
+            (existingProvenance == Provenance.OBSERVED && eventProvenance == Provenance.RECONSTRUCTED) ||
+                (existingProvenance == Provenance.RECONSTRUCTED && eventProvenance == Provenance.OBSERVED)
+        if (isObservedReconstructedPair) return Provenance.OBSERVED
+
+        return if (eventIsAtLeastAsRecent) eventProvenance else existingProvenance
     }
 }
