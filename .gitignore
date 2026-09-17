@@ -16,3 +16,20 @@ __pycache__/
 *.pyc
 .pytest_cache/
 backend/.venv/
+
+# Phase 2B map-matching benchmark -- private raw GPS capture data (2B-1B correction §9).
+# Real physical route captures (raw GPS traces, calibration logs, review scratch files) must never
+# be tracked by Git -- only deliberately sanitized fixtures under
+# docs/ai-context/map-matching-spike/ are meant to be committed. `benchmark-private/` is the
+# recommended location for any future real capture data; the loose files below are pre-existing
+# local calibration artifacts at the repo root, protected here rather than moved (see protocol
+# correction §9: "do not move existing private artifacts unless necessary").
+/benchmark-private/
+/tracking-calibration.ndjson
+/trip1.txt
+/trip2.txt
+/trip3.txt
+/vehicle1.txt
+/map-doc-diff.txt
+/review-context.txt
+/review.ps1
