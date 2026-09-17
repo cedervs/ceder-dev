@@ -24,10 +24,19 @@ import com.cedervs.worlddiscovery.core.discovery.SubmitDiscoveryObservation
 import com.cedervs.worlddiscovery.core.discovery.loadFranceAdministrativeAreas
 import com.cedervs.worlddiscovery.core.discovery.loadFranceGeographicAreaReference
 import com.cedervs.worlddiscovery.core.location.AndroidBackgroundLocationDiagnosticLogger
+import com.cedervs.worlddiscovery.core.location.AndroidCalibrationDiagnosticSink
+import com.cedervs.worlddiscovery.core.location.AndroidDiscoveryDiagnosticSink
 import com.cedervs.worlddiscovery.core.location.AndroidLocationDiagnosticLogger
 import com.cedervs.worlddiscovery.core.location.AndroidTransitionDiagnosticLogger
 import com.cedervs.worlddiscovery.core.location.AppForegroundTrackingController
 import com.cedervs.worlddiscovery.core.location.BackgroundLocationController
+import com.cedervs.worlddiscovery.core.location.CalibrationDiagnosticEvent
+import com.cedervs.worlddiscovery.core.location.CalibrationDiagnosticFileWriter
+import com.cedervs.worlddiscovery.core.location.CalibrationDiagnosticSink
+import com.cedervs.worlddiscovery.core.location.CalibrationLifecycleKind
+import com.cedervs.worlddiscovery.core.location.CRITICAL_RECORD_DEFAULT_TIMEOUT_MILLIS
+import com.cedervs.worlddiscovery.core.location.NoOpCalibrationDiagnosticSink
+import com.cedervs.worlddiscovery.core.location.recordCriticalSafely
 import com.cedervs.worlddiscovery.core.location.ForegroundTransitionDiagnostics
 import com.cedervs.worlddiscovery.core.location.LocationObservation
 import com.cedervs.worlddiscovery.core.location.BackgroundLocationRegistrar
@@ -40,9 +49,12 @@ import com.cedervs.worlddiscovery.core.location.LocationDiagnosticLogger
 import com.cedervs.worlddiscovery.core.location.LocationProvider
 import com.cedervs.worlddiscovery.core.location.LocationTrackingSession
 import com.cedervs.worlddiscovery.core.location.LocationUpdatesProvider
+import com.cedervs.worlddiscovery.core.location.ScreenStateCalibrationReceiver
 import com.cedervs.worlddiscovery.core.location.SubmitBackgroundLocationObservations
 import com.cedervs.worlddiscovery.core.location.SubmitCurrentLocationUseCase
 import com.cedervs.worlddiscovery.core.location.TrackingSessionState
+import com.cedervs.worlddiscovery.core.discovery.DiscoveryDiagnosticSink
+import com.cedervs.worlddiscovery.core.discovery.NoOpDiscoveryDiagnosticSink
 import com.cedervs.worlddiscovery.core.network.ApiClient
 import com.cedervs.worlddiscovery.feature.map.MapNavigationStateResetter
 import kotlinx.coroutines.CoroutineScope
@@ -81,7 +93,23 @@ class AppContainer(context: Context) {
     private val discoveredCellRepository: DiscoveredCellRepository =
         RoomDiscoveredCellRepository(database.discoveredCellDao())
     private val h3CellConverter: H3CellConverter = AndroidH3CellConverter()
-    private val submitDiscoveryObservation = SubmitDiscoveryObservation(h3CellConverter, discoveredCellRepository)
+
+    // TEMPORARY DEBUG CALIBRATION INFRASTRUCTURE — see CalibrationDiagnosticFileWriter's doc
+    // comment for what this is (and is NOT) and its exact removal point once background tracking
+    // calibration is complete. A release build never constructs the writer, its background
+    // executor, or its bounded queue at all -- calibrationDiagnosticWriter stays null, and the
+    // sinks below fall back directly to the existing NoOp implementations (Codex review round:
+    // previously a "disabled" writer was still allocated in release, contradicting the intended
+    // debug-only architecture even though it performed no file I/O).
+    private val calibrationDiagnosticWriter: CalibrationDiagnosticFileWriter? =
+        if (BuildConfig.DEBUG) CalibrationDiagnosticFileWriter.forContext(context) else null
+    private val calibrationDiagnosticSink: CalibrationDiagnosticSink =
+        calibrationDiagnosticWriter?.let { AndroidCalibrationDiagnosticSink(it) } ?: NoOpCalibrationDiagnosticSink()
+    private val discoveryDiagnosticSink: DiscoveryDiagnosticSink =
+        calibrationDiagnosticWriter?.let { AndroidDiscoveryDiagnosticSink(it) } ?: NoOpDiscoveryDiagnosticSink()
+
+    private val submitDiscoveryObservation =
+        SubmitDiscoveryObservation(h3CellConverter, discoveredCellRepository, discoveryDiagnosticSink)
 
     // Unconditional (unlike the debug-only AndroidH3GridTraversal instance below, constructed only
     // for ForegroundTransitionDiagnostics) -- the derived first-discovery corridor's own structural-
@@ -145,6 +173,7 @@ class AppContainer(context: Context) {
             submitDiscoveryObservation,
             locationDiagnosticLogger,
             backgroundLocationDiagnosticLogger,
+            calibrationDiagnosticSink,
         )
 
     // Debug-only field-calibration instrumentation for foreground transitions (see
@@ -170,7 +199,8 @@ class AppContainer(context: Context) {
     // Process-lifetime scope for the in-session tracking pipeline: AppContainer itself already
     // lives for the whole process, so no separate ViewModel is needed just to own this.
     private val trackingScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val locationUpdatesProvider: LocationUpdatesProvider = FusedLocationUpdatesProvider(context)
+    private val locationUpdatesProvider: LocationUpdatesProvider =
+        FusedLocationUpdatesProvider(context, calibrationDiagnosticSink = calibrationDiagnosticSink)
     private val locationTrackingSession = LocationTrackingSession(
         locationUpdatesProvider = locationUpdatesProvider,
         submitDiscoveryObservation = submitDiscoveryObservation,
@@ -191,11 +221,16 @@ class AppContainer(context: Context) {
     // (see BackgroundLocationController, the only place the two are combined).
     val backgroundTrackingConsent: BackgroundTrackingConsent = DataStoreBackgroundTrackingConsent(context)
     private val backgroundLocationRegistrar: BackgroundLocationRegistrar =
-        FusedBackgroundLocationRegistrar(context, diagnosticLogger = backgroundLocationDiagnosticLogger)
+        FusedBackgroundLocationRegistrar(
+            context,
+            diagnosticLogger = backgroundLocationDiagnosticLogger,
+            calibrationDiagnosticSink = calibrationDiagnosticSink,
+        )
     private val backgroundLocationController = BackgroundLocationController(
         consent = backgroundTrackingConsent,
         registrar = backgroundLocationRegistrar,
         scope = trackingScope,
+        calibrationDiagnosticSink = calibrationDiagnosticSink,
     )
 
     // Application-foreground lifecycle, not any single screen/Activity (docs: tracking must run
@@ -204,7 +239,17 @@ class AppContainer(context: Context) {
     private val appForegroundTrackingController = AppForegroundTrackingController(
         foregroundSession = locationTrackingSession,
         backgroundController = backgroundLocationController,
+        calibrationDiagnosticSink = calibrationDiagnosticSink,
     )
+
+    // TEMPORARY DEBUG CALIBRATION INFRASTRUCTURE — see CalibrationDiagnosticFileWriter's doc
+    // comment. Only constructed (and registered) at all when calibrationDiagnosticWriter is
+    // non-null -- i.e. only in a debug build -- matching foregroundTransitionDiagnostics' "the
+    // object graph itself is absent in release" pattern below, not merely "harmless if it runs."
+    private val screenStateCalibrationReceiver: ScreenStateCalibrationReceiver? =
+        calibrationDiagnosticWriter?.let {
+            ScreenStateCalibrationReceiver(calibrationDiagnosticSink).also { receiver -> receiver.register(context) }
+        }
 
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(appForegroundTrackingController)
@@ -236,6 +281,46 @@ class AppContainer(context: Context) {
     suspend fun submitBackgroundLocationObservations(observations: List<LocationObservation>) {
         submitBackgroundLocationObservationsUseCase(observations)
     }
+
+    /**
+     * TEMPORARY DEBUG CALIBRATION INFRASTRUCTURE — see [CalibrationDiagnosticFileWriter]'s doc
+     * comment. Called from `BackgroundLocationReceiver`/`BootCompletedReceiver` (`:app`, which
+     * cannot depend on `:core-location`'s internals the other way around) so a receiver actually
+     * running is itself durably recorded — blocking (bounded, [timeoutMillis]) until the write has
+     * actually reached the file-writing boundary, not merely entered a queue that a process kill
+     * moments later could still lose. Uses [recordCriticalSafely] (Codex review round: a raw
+     * [CalibrationDiagnosticSink.recordCritical] call here had no swallow-all boundary of its
+     * own, so a thrown diagnostic failure — not just a timeout — could have propagated out of
+     * this "best-effort" call and skipped the receiver's real functional work entirely). A timeout
+     * or failure here is only ever reflected in the return value — it never throws, and callers
+     * must never let it gate their own functional work. Must only be called from a background
+     * thread; both call sites already dispatch onto one via `goAsync()` + a background
+     * `CoroutineScope`.
+     */
+    fun recordCriticalCalibrationEvent(
+        kind: CalibrationLifecycleKind,
+        timeoutMillis: Long = CRITICAL_RECORD_DEFAULT_TIMEOUT_MILLIS,
+    ): Boolean = calibrationDiagnosticSink.recordCriticalSafely(CalibrationDiagnosticEvent.Lifecycle(kind), timeoutMillis)
+
+    /**
+     * TEMPORARY DEBUG CALIBRATION INFRASTRUCTURE — see [CalibrationDiagnosticFileWriter]'s doc
+     * comment. Bounded wait (blocking, [timeoutMillis]) for every calibration diagnostic write
+     * already submitted at the time of this call to have been attempted — used by
+     * `BackgroundLocationReceiver`/`BootCompletedReceiver` so that already-enqueued calibration
+     * evidence (including any pending overflow-loss marker — see
+     * [CalibrationDiagnosticFileWriter.awaitFlush]'s doc comment) has actually reached the file
+     * before the receiver's lifetime ends. Wrapped in its own swallow-all boundary — the same
+     * reasoning as [recordCriticalCalibrationEvent] applies: a thrown diagnostic failure here must
+     * never propagate and mask whatever the caller's functional work already did (or threw).
+     * Returns `true` immediately in a release build, where [calibrationDiagnosticWriter] is `null`
+     * (nothing to flush).
+     */
+    fun flushCalibrationDiagnostics(timeoutMillis: Long = CRITICAL_RECORD_DEFAULT_TIMEOUT_MILLIS): Boolean =
+        try {
+            calibrationDiagnosticWriter?.awaitFlush(timeoutMillis) ?: true
+        } catch (t: Throwable) {
+            false
+        }
 
     /**
      * Called from `BootCompletedReceiver` (see `:app`'s manifest-declared receiver). A device

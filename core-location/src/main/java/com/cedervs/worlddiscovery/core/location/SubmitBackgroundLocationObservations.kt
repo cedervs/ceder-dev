@@ -3,6 +3,8 @@ package com.cedervs.worlddiscovery.core.location
 import com.cedervs.worlddiscovery.core.discovery.Provenance
 import com.cedervs.worlddiscovery.core.discovery.SubmitDiscoveryObservation
 import com.cedervs.worlddiscovery.core.discovery.TrustStatus
+import java.time.Instant
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -25,21 +27,46 @@ class SubmitBackgroundLocationObservations(
     private val submitDiscoveryObservation: SubmitDiscoveryObservation,
     private val diagnosticLogger: LocationDiagnosticLogger = NoOpLocationDiagnosticLogger(),
     private val backgroundDiagnosticLogger: BackgroundLocationDiagnosticLogger = NoOpBackgroundLocationDiagnosticLogger(),
+    private val calibrationDiagnosticSink: CalibrationDiagnosticSink = NoOpCalibrationDiagnosticSink(),
 ) {
     suspend operator fun invoke(observations: List<LocationObservation>) {
         backgroundDiagnosticLogger.logDeliverySafely(observations)
-        for (observation in observations) {
+        // One shared ID for the whole delivery -- see CalibrationDiagnosticEvent.LocationDelivered's
+        // doc comment for why this path (unlike the foreground callback) can carry batchSize > 1.
+        val batchId = UUID.randomUUID().toString()
+        val receivedAt = Instant.now()
+        observations.forEachIndexed { index, observation ->
             // Entirely separate from the submission below, on purpose: logSafely() guarantees a
             // logging failure can never propagate — see LocationDiagnosticLogger.kt — but this
             // call is also structurally outside the try/catch that follows so there is no
             // ambiguity about a logging failure ever being mistaken for a submission failure.
             diagnosticLogger.logSafely(observation)
+            calibrationDiagnosticSink.recordSafely(
+                CalibrationDiagnosticEvent.LocationDelivered(
+                    source = CalibrationLocationSource.BACKGROUND_PENDING_INTENT,
+                    batchId = batchId,
+                    batchSize = observations.size,
+                    indexInBatch = index,
+                    observedAt = observation.observedAt,
+                    receivedAt = receivedAt,
+                    accuracyMeters = observation.accuracyMeters,
+                    speedMetersPerSecond = observation.speedMetersPerSecond,
+                    provider = observation.provider,
+                ),
+            )
+            // Explicit correlation with the DISCOVERY_RESULT this same observation produces --
+            // see SubmitDiscoveryObservation.invoke's diagnosticDeliveryId doc comment. batchId
+            // alone would not distinguish which of several observations in the same batch a
+            // given DISCOVERY_RESULT belongs to; pairing it with this observation's own index
+            // does, without needing file-adjacency inference.
+            val diagnosticDeliveryId = "$batchId:$index"
             try {
                 submitDiscoveryObservation(
                     coordinate = observation.coordinate,
                     timestamp = observation.observedAt,
                     provenance = Provenance.OBSERVED,
                     trustStatus = TrustStatus.NON_CERTIFIED,
+                    diagnosticDeliveryId = diagnosticDeliveryId,
                 )
             } catch (e: CancellationException) {
                 throw e

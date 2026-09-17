@@ -8,6 +8,8 @@ import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
+import java.time.Instant
+import java.util.UUID
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -60,6 +62,7 @@ import kotlinx.coroutines.flow.callbackFlow
 class FusedLocationUpdatesProvider(
     context: Context,
     private val config: LocationUpdateConfig = LocationUpdateConfig.FOREGROUND_PROVISIONAL,
+    private val calibrationDiagnosticSink: CalibrationDiagnosticSink = NoOpCalibrationDiagnosticSink(),
 ) : LocationUpdatesProvider {
 
     private val appContext = context.applicationContext
@@ -83,6 +86,23 @@ class FusedLocationUpdatesProvider(
             override fun onLocationResult(result: LocationResult) {
                 val location = result.lastLocation ?: return
                 val observation = location.toLocationObservation() ?: return
+                calibrationDiagnosticSink.recordSafely(
+                    CalibrationDiagnosticEvent.LocationDelivered(
+                        source = CalibrationLocationSource.FOREGROUND_CALLBACK,
+                        // Always exactly one fix per delivery on this path (see the class doc
+                        // comment: only LocationResult.lastLocation is ever read here) — a fresh
+                        // ID per delivery, not a shared session ID, is enough to make this
+                        // consistent with the background path's per-batch grouping.
+                        batchId = UUID.randomUUID().toString(),
+                        batchSize = 1,
+                        indexInBatch = 0,
+                        observedAt = observation.observedAt,
+                        receivedAt = Instant.now(),
+                        accuracyMeters = observation.accuracyMeters,
+                        speedMetersPerSecond = observation.speedMetersPerSecond,
+                        provider = observation.provider,
+                    ),
+                )
                 trySend(LocationAcquisitionResult.Success(observation))
             }
 

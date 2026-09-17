@@ -183,4 +183,62 @@ class FusedBackgroundLocationRegistrarRegistrationTest {
             diagnosticLogger = throwingLogger,
         )
     }
+
+    // ==============================================================================================
+    // TEMPORARY DEBUG CALIBRATION INFRASTRUCTURE -- calibrationDiagnosticSink wiring, alongside
+    // (not instead of) the existing BackgroundLocationDiagnosticLogger above. See
+    // CalibrationDiagnosticFileWriter.kt's doc comment for the removal point.
+    // ==============================================================================================
+
+    private class RecordingCalibrationDiagnosticSinkForRegistrar : CalibrationDiagnosticSink {
+        val outcomes = mutableListOf<BackgroundRegistrationOutcome>()
+
+        override fun record(event: CalibrationDiagnosticEvent) {
+            if (event is CalibrationDiagnosticEvent.BackgroundRegistration) outcomes.add(event.outcome)
+        }
+
+        override fun recordCritical(event: CalibrationDiagnosticEvent, timeoutMillis: Long): Boolean {
+            record(event)
+            return true
+        }
+    }
+
+    @Test
+    fun `the calibration sink receives the same outcome as the Logcat diagnostic logger`() {
+        val logger = RecordingBackgroundLocationDiagnosticLoggerForRegistrar()
+        val sink = RecordingCalibrationDiagnosticSinkForRegistrar()
+
+        performBackgroundLocationRegistration(
+            hasPermission = true,
+            startRequest = { Tasks.forResult(null) },
+            config = LocationUpdateConfig.BACKGROUND_PROVISIONAL,
+            diagnosticLogger = logger,
+            listenerExecutor = inlineExecutor,
+            calibrationDiagnosticSink = sink,
+        )
+
+        assertEquals(listOf(BackgroundRegistrationOutcome.REGISTERED), logger.registrations)
+        assertEquals(listOf(BackgroundRegistrationOutcome.REGISTERED), sink.outcomes)
+    }
+
+    @Test
+    fun `a throwing calibration sink never prevents registration from proceeding`() {
+        var startRequestCallCount = 0
+        val throwingSink = object : CalibrationDiagnosticSink {
+            override fun record(event: CalibrationDiagnosticEvent) = error("simulated calibration sink failure")
+            override fun recordCritical(event: CalibrationDiagnosticEvent, timeoutMillis: Long) =
+                error("simulated calibration sink failure")
+        }
+
+        performBackgroundLocationRegistration(
+            hasPermission = true,
+            startRequest = { startRequestCallCount++; Tasks.forResult(null) },
+            config = LocationUpdateConfig.BACKGROUND_PROVISIONAL,
+            diagnosticLogger = RecordingBackgroundLocationDiagnosticLoggerForRegistrar(),
+            listenerExecutor = inlineExecutor,
+            calibrationDiagnosticSink = throwingSink,
+        )
+
+        assertEquals(1, startRequestCallCount)
+    }
 }

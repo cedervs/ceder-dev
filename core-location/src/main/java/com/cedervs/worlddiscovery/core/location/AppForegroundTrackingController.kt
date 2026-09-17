@@ -18,18 +18,29 @@ import androidx.lifecycle.LifecycleOwner
  *
  * Takes a [LifecycleOwner] rather than hardcoding `ProcessLifecycleOwner` so this stays testable
  * with any [LifecycleOwner] test double (e.g. one backed by `LifecycleRegistry`).
+ *
+ * [calibrationDiagnosticSink] is TEMPORARY DEBUG CALIBRATION INFRASTRUCTURE (see
+ * [CalibrationDiagnosticFileWriter]'s doc comment) — best-effort, never affects the transition
+ * logic above.
  */
 class AppForegroundTrackingController(
     private val foregroundSession: LocationTrackingSession,
     private val backgroundController: BackgroundLocationController,
+    private val calibrationDiagnosticSink: CalibrationDiagnosticSink = NoOpCalibrationDiagnosticSink(),
 ) : DefaultLifecycleObserver {
 
     override fun onStart(owner: LifecycleOwner) {
+        calibrationDiagnosticSink.recordSafely(
+            CalibrationDiagnosticEvent.Lifecycle(CalibrationLifecycleKind.APP_FOREGROUND_START),
+        )
         backgroundController.disarm()
         foregroundSession.start()
     }
 
     override fun onStop(owner: LifecycleOwner) {
+        calibrationDiagnosticSink.recordSafely(
+            CalibrationDiagnosticEvent.Lifecycle(CalibrationLifecycleKind.APP_FOREGROUND_STOP),
+        )
         foregroundSession.stop()
         backgroundController.arm()
     }

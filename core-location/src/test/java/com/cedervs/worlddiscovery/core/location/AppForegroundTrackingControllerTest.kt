@@ -117,6 +117,75 @@ class AppForegroundTrackingControllerTest {
         foregroundSession.stop()
         advanceUntilIdle()
     }
+
+    // ==============================================================================================
+    // TEMPORARY DEBUG CALIBRATION INFRASTRUCTURE -- calibrationDiagnosticSink wiring. See
+    // CalibrationDiagnosticFileWriter.kt's doc comment for the removal point.
+    // ==============================================================================================
+
+    @Test
+    fun `onStart and onStop each record their own calibration lifecycle event`() = runTest {
+        val sink = RecordingAppForegroundCalibrationDiagnosticSink()
+        val submitDiscoveryObservation = SubmitDiscoveryObservation(UnusedCellConverter(), UnusedCellRepository())
+        foregroundSession = LocationTrackingSession(locationUpdatesProvider, submitDiscoveryObservation, this)
+        backgroundController = BackgroundLocationController(consent, backgroundRegistrar, this)
+        val controller = AppForegroundTrackingController(foregroundSession, backgroundController, sink)
+        consent.emitNext(true)
+
+        controller.onStart(fakeOwner)
+        advanceUntilIdle()
+        controller.onStop(fakeOwner)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(CalibrationLifecycleKind.APP_FOREGROUND_START, CalibrationLifecycleKind.APP_FOREGROUND_STOP),
+            sink.recorded.filterIsInstance<CalibrationDiagnosticEvent.Lifecycle>().map { it.kind },
+        )
+    }
+
+    @Test
+    fun `a throwing calibration sink never prevents onStart or onStop from proceeding`() = runTest {
+        val submitDiscoveryObservation = SubmitDiscoveryObservation(UnusedCellConverter(), UnusedCellRepository())
+        foregroundSession = LocationTrackingSession(locationUpdatesProvider, submitDiscoveryObservation, this)
+        backgroundController = BackgroundLocationController(consent, backgroundRegistrar, this)
+        val controller = AppForegroundTrackingController(
+            foregroundSession,
+            backgroundController,
+            ThrowingAppForegroundCalibrationDiagnosticSink(),
+        )
+        consent.emitNext(true)
+
+        controller.onStart(fakeOwner)
+        advanceUntilIdle()
+        assertEquals(TrackingSessionState.Active, foregroundSession.state.value)
+
+        controller.onStop(fakeOwner)
+        advanceUntilIdle()
+        assertEquals(TrackingSessionState.Idle, foregroundSession.state.value)
+    }
+}
+
+private class RecordingAppForegroundCalibrationDiagnosticSink : CalibrationDiagnosticSink {
+    val recorded = mutableListOf<CalibrationDiagnosticEvent>()
+
+    override fun record(event: CalibrationDiagnosticEvent) {
+        recorded.add(event)
+    }
+
+    override fun recordCritical(event: CalibrationDiagnosticEvent, timeoutMillis: Long): Boolean {
+        record(event)
+        return true
+    }
+}
+
+private class ThrowingAppForegroundCalibrationDiagnosticSink : CalibrationDiagnosticSink {
+    override fun record(event: CalibrationDiagnosticEvent) {
+        error("simulated calibration diagnostic sink failure")
+    }
+
+    override fun recordCritical(event: CalibrationDiagnosticEvent, timeoutMillis: Long): Boolean {
+        error("simulated calibration diagnostic sink failure")
+    }
 }
 
 private class NeverEmittingLocationUpdatesProvider : LocationUpdatesProvider {

@@ -20,6 +20,7 @@ class BackgroundLocationController(
     private val consent: BackgroundTrackingConsent,
     private val registrar: BackgroundLocationRegistrar,
     private val scope: CoroutineScope,
+    private val calibrationDiagnosticSink: CalibrationDiagnosticSink = NoOpCalibrationDiagnosticSink(),
 ) {
     private var armJob: Job? = null
 
@@ -31,6 +32,9 @@ class BackgroundLocationController(
      * and background are never simultaneously active by construction, not by timing luck.
      */
     fun arm() {
+        calibrationDiagnosticSink.recordSafely(
+            CalibrationDiagnosticEvent.Lifecycle(CalibrationLifecycleKind.BACKGROUND_ARM_REQUESTED),
+        )
         armJob?.cancel()
         armJob = scope.launch { armSuspending() }
     }
@@ -52,6 +56,9 @@ class BackgroundLocationController(
      * unregisters — idempotent and safe even if nothing was ever registered.
      */
     fun disarm() {
+        calibrationDiagnosticSink.recordSafely(
+            CalibrationDiagnosticEvent.Lifecycle(CalibrationLifecycleKind.BACKGROUND_DISARM_REQUESTED),
+        )
         armJob?.cancel()
         armJob = null
         registrar.unregister()

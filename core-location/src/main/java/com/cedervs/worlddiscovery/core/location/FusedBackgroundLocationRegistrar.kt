@@ -23,6 +23,7 @@ class FusedBackgroundLocationRegistrar(
     context: Context,
     private val config: LocationUpdateConfig = LocationUpdateConfig.BACKGROUND_PROVISIONAL,
     private val diagnosticLogger: BackgroundLocationDiagnosticLogger = NoOpBackgroundLocationDiagnosticLogger(),
+    private val calibrationDiagnosticSink: CalibrationDiagnosticSink = NoOpCalibrationDiagnosticSink(),
 ) : BackgroundLocationRegistrar {
 
     private val appContext = context.applicationContext
@@ -56,6 +57,7 @@ class FusedBackgroundLocationRegistrar(
             config = config,
             diagnosticLogger = diagnosticLogger,
             listenerExecutor = diagnosticListenerExecutor,
+            calibrationDiagnosticSink = calibrationDiagnosticSink,
         )
     }
 
@@ -128,9 +130,13 @@ internal fun performBackgroundLocationRegistration(
     config: LocationUpdateConfig,
     diagnosticLogger: BackgroundLocationDiagnosticLogger,
     listenerExecutor: Executor,
+    calibrationDiagnosticSink: CalibrationDiagnosticSink = NoOpCalibrationDiagnosticSink(),
 ) {
     if (!hasPermission) {
         diagnosticLogger.logRegistrationSafely(config, BackgroundRegistrationOutcome.SKIPPED_NO_PERMISSION)
+        calibrationDiagnosticSink.recordSafely(
+            CalibrationDiagnosticEvent.BackgroundRegistration(config, BackgroundRegistrationOutcome.SKIPPED_NO_PERMISSION),
+        )
         return
     }
 
@@ -138,13 +144,22 @@ internal fun performBackgroundLocationRegistration(
         startRequest()
             .addOnSuccessListener(listenerExecutor) {
                 diagnosticLogger.logRegistrationSafely(config, BackgroundRegistrationOutcome.REGISTERED)
+                calibrationDiagnosticSink.recordSafely(
+                    CalibrationDiagnosticEvent.BackgroundRegistration(config, BackgroundRegistrationOutcome.REGISTERED),
+                )
             }
             .addOnFailureListener(listenerExecutor) {
                 diagnosticLogger.logRegistrationSafely(config, BackgroundRegistrationOutcome.FAILED_TASK)
+                calibrationDiagnosticSink.recordSafely(
+                    CalibrationDiagnosticEvent.BackgroundRegistration(config, BackgroundRegistrationOutcome.FAILED_TASK),
+                )
             }
     } catch (e: SecurityException) {
         // Permission was just checked (hasPermission) but can still race with a concurrent
         // revocation; fail safely — nothing to submit, the next attempt re-checks from scratch.
         diagnosticLogger.logRegistrationSafely(config, BackgroundRegistrationOutcome.FAILED_SECURITY_EXCEPTION)
+        calibrationDiagnosticSink.recordSafely(
+            CalibrationDiagnosticEvent.BackgroundRegistration(config, BackgroundRegistrationOutcome.FAILED_SECURITY_EXCEPTION),
+        )
     }
 }

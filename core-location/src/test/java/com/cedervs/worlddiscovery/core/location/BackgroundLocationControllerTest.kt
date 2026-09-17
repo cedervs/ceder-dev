@@ -102,6 +102,66 @@ class BackgroundLocationControllerTest {
 
         assertEquals(0, registrar.registerCallCount)
     }
+
+    // ==============================================================================================
+    // TEMPORARY DEBUG CALIBRATION INFRASTRUCTURE -- calibrationDiagnosticSink wiring. See
+    // CalibrationDiagnosticFileWriter.kt's doc comment for the removal point.
+    // ==============================================================================================
+
+    @Test
+    fun `arm and disarm each record their own calibration lifecycle event`() = runTest {
+        val sink = RecordingCalibrationDiagnosticSink()
+        val controller = BackgroundLocationController(consent, registrar, this, sink)
+        consent.emitNext(true)
+
+        controller.arm()
+        advanceUntilIdle()
+        controller.disarm()
+
+        assertEquals(
+            listOf(CalibrationLifecycleKind.BACKGROUND_ARM_REQUESTED, CalibrationLifecycleKind.BACKGROUND_DISARM_REQUESTED),
+            sink.recordedKinds(),
+        )
+    }
+
+    @Test
+    fun `a throwing calibration sink never prevents arm or disarm from proceeding`() = runTest {
+        val controller = BackgroundLocationController(consent, registrar, this, ThrowingCalibrationDiagnosticSink())
+        consent.emitNext(true)
+
+        controller.arm()
+        advanceUntilIdle()
+        controller.disarm()
+
+        assertEquals(1, registrar.registerCallCount)
+        assertEquals(1, registrar.unregisterCallCount)
+    }
+}
+
+private class RecordingCalibrationDiagnosticSink : CalibrationDiagnosticSink {
+    val recorded = mutableListOf<CalibrationDiagnosticEvent>()
+
+    override fun record(event: CalibrationDiagnosticEvent) {
+        recorded.add(event)
+    }
+
+    override fun recordCritical(event: CalibrationDiagnosticEvent, timeoutMillis: Long): Boolean {
+        record(event)
+        return true
+    }
+
+    fun recordedKinds(): List<CalibrationLifecycleKind> =
+        recorded.filterIsInstance<CalibrationDiagnosticEvent.Lifecycle>().map { it.kind }
+}
+
+private class ThrowingCalibrationDiagnosticSink : CalibrationDiagnosticSink {
+    override fun record(event: CalibrationDiagnosticEvent) {
+        error("simulated calibration diagnostic sink failure")
+    }
+
+    override fun recordCritical(event: CalibrationDiagnosticEvent, timeoutMillis: Long): Boolean {
+        error("simulated calibration diagnostic sink failure")
+    }
 }
 
 private class FakeBackgroundTrackingConsent : BackgroundTrackingConsent {
