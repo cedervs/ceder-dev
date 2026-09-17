@@ -31,6 +31,7 @@ A feature being unimplemented does not make its established product rules undeci
 - `DATA_AND_DISCOVERY_RULES.md`: geographic/discovery data semantics.
 - `AUTH_AND_ACCOUNTS.md`: account/authentication decisions.
 - `LOCATION_TRACKING.md`: specialized tracking reference.
+- `MAP_MATCHING_ENGINE_STUDY.md`: Phase 2A technical study comparing Valhalla/Meili, OSRM Match and GraphHopper Map Matching — no engine chosen, no integration.
 - `ROADMAP.md`: completed foundation and future work.
 - `REJECTED_APPROACHES.md`: approaches not to reintroduce accidentally.
 - `OPEN_QUESTIONS.md`: genuine unresolved decisions only.

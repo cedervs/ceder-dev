@@ -1,0 +1,26 @@
+﻿=====================================================================
+PHASE 2B BENCHMARK HARNESS -- SMOKE TEST ONLY -- NOT A BENCHMARK RESULT
+Reference geometry is self-referential (derived from OSRM's own /route).
+These numbers prove the pipeline works; they measure nothing about engine quality.
+=====================================================================
+
+Loaded self-referential 'reference' geometry: 720 points from docs\ai-context\map-matching-spike\shared\synthetic-self-referential-route.json
+
+engine     points       hausdorff(m)     frechet(m)  alongTrack(m)   overlap%    H3-TP    H3-FP    H3-FN
+osrm       722                 341.4          341.4            0.8       96.1     1242       22       64
+valhalla   36                  341.4          341.4            3.3       65.1      532      668      774
+
+geometry densification spacing used for hausdorff/frechet/overlap: 5.0m (both inputs, same spacing)
+H3 sampling step used: 3.0m at resolution 12
+
+perObservation entries -- osrm: 36, valhalla: 36
+osrm null (unmatched) count: 2
+valhalla unmatched count: 0
+
+configIdentity.requestFixtureSha256 (osrm): fbaebc0f06a170fc90bd67cd06c2fcdb93fc602da1377870e929dec684edd49c
+configIdentity.rawResponseSha256 (osrm): 2a9022495ed58692beda3e4e8d61386f9bd13923e24e38465c38714a435dcca9
+configIdentity.requestFixtureSha256 (valhalla): b9d9a3d7a8bbd15ca47891be7bfcd34d29e773e2bf605e0894bfd5a6a62359b8
+configIdentity.rawResponseSha256 (valhalla): eedee362d1e132e04b03532b26d392b360597a37bfe93e409f6f09f564009ffa
+
+SMOKE TEST COMPLETE -- pipeline executed load -> adapt -> normalize -> geometry -> H3 -> summary successfully.
+Reminder: none of the above is a benchmark result (see warning at top).
