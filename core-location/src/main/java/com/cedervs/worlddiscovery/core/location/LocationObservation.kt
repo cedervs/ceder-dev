@@ -13,6 +13,13 @@ import java.time.Instant
  * rejection filter — every structurally valid observation still reaches
  * [com.cedervs.worlddiscovery.core.discovery.SubmitDiscoveryObservation] exactly as before.
  * Filtering and its thresholds remain CALIBRATION REQUIRED, not implemented here.
+ *
+ * [bearingDegrees]/[bearingAccuracyDegrees]/[speedAccuracyMetersPerSecond]/[elapsedRealtimeNanos]/
+ * [isMockLocation] were added for the trajectory-reconstruction Phase 1 round — pure *capture*,
+ * not a new filter (see the class doc comment above; **capturing a signal is not the same as
+ * starting to act on it** — nothing here changes which fixes reach `SubmitDiscoveryObservation`
+ * or how). All five default so every existing construction call site keeps compiling unchanged.
+ * See `docs/ai-context/LOCATION_TRACKING.md` for why each was added and what it is for.
  */
 data class LocationObservation(
     val coordinate: Coordinate,
@@ -20,6 +27,17 @@ data class LocationObservation(
     val accuracyMeters: Float?,
     val speedMetersPerSecond: Float?,
     val provider: String?,
+    val bearingDegrees: Float? = null,
+    val bearingAccuracyDegrees: Float? = null,
+    val speedAccuracyMetersPerSecond: Float? = null,
+    /** `Location.getElapsedRealtimeNanos()` — always populated by a real Fused Location Provider
+     * fix (API 17+); defaults to `0L` only for a hand-constructed `Location` that never set it
+     * (e.g. an older/incomplete test fixture) — `0L` must be treated as "not genuinely available",
+     * never as a real elapsed-time reading of zero. See
+     * `com.cedervs.worlddiscovery.core.discovery.trajectory.buildObservationDedupKey`'s doc
+     * comment for the one place this distinction already matters. */
+    val elapsedRealtimeNanos: Long = 0L,
+    val isMockLocation: Boolean = false,
 )
 
 /**
@@ -31,6 +49,10 @@ data class LocationObservation(
  * conversion. Returns `null` only for a structurally invalid coordinate ([Coordinate]'s own
  * validation) — no other rejection logic exists here.
  */
+@Suppress("DEPRECATION") // isFromMockProvider() is deprecated in favor of isMock() (API 31+) --
+// this app's minSdk is 26, so the older API remains the only one available on every supported
+// device; it stays fully functional (not merely "still compiles") on every API level this app
+// targets, including 31+.
 fun Location.toLocationObservation(): LocationObservation? {
     val coordinate = runCatching { Coordinate(latitude, longitude) }.getOrNull() ?: return null
     return LocationObservation(
@@ -41,5 +63,10 @@ fun Location.toLocationObservation(): LocationObservation? {
         accuracyMeters = if (hasAccuracy()) accuracy else null,
         speedMetersPerSecond = if (hasSpeed()) speed else null,
         provider = provider,
+        bearingDegrees = if (hasBearing()) bearing else null,
+        bearingAccuracyDegrees = if (hasBearingAccuracy()) bearingAccuracyDegrees else null,
+        speedAccuracyMetersPerSecond = if (hasSpeedAccuracy()) speedAccuracyMetersPerSecond else null,
+        elapsedRealtimeNanos = elapsedRealtimeNanos,
+        isMockLocation = isFromMockProvider(),
     )
 }

@@ -4,10 +4,13 @@ import android.location.Location
 import com.cedervs.worlddiscovery.core.discovery.Coordinate
 import java.time.Instant
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 
 /**
  * Exercises the real `android.location.Location -> LocationObservation` conversion via
@@ -28,6 +31,11 @@ class LocationObservationConversionTest {
         timeEpochMillis: Long = fixTimeEpochMillis,
         accuracy: Float? = null,
         speed: Float? = null,
+        speedAccuracy: Float? = null,
+        bearing: Float? = null,
+        bearingAccuracy: Float? = null,
+        elapsedRealtimeNanos: Long? = null,
+        isMock: Boolean = false,
     ): Location {
         val location = Location(provider)
         location.latitude = latitude
@@ -35,6 +43,11 @@ class LocationObservationConversionTest {
         location.time = timeEpochMillis
         if (accuracy != null) location.accuracy = accuracy
         if (speed != null) location.speed = speed
+        if (speedAccuracy != null) location.speedAccuracyMetersPerSecond = speedAccuracy
+        if (bearing != null) location.bearing = bearing
+        if (bearingAccuracy != null) location.bearingAccuracyDegrees = bearingAccuracy
+        if (elapsedRealtimeNanos != null) location.elapsedRealtimeNanos = elapsedRealtimeNanos
+        if (isMock) shadowOf(location).setIsFromMockProvider(true)
         return location
     }
 
@@ -104,5 +117,81 @@ class LocationObservationConversionTest {
         val observation = realLocation(latitude = 200.0, longitude = 0.0).toLocationObservation()
 
         assertNull(observation)
+    }
+
+    // ==============================================================================================
+    // Trajectory reconstruction Phase 1 -- newly captured metadata. See LocationObservation's own
+    // doc comment: capturing these is not itself a new filter, nothing about acceptance/rejection
+    // changes here.
+    // ==============================================================================================
+
+    @Test
+    fun `bearing is captured when Location reports it`() {
+        val observation = realLocation(bearing = 87.5f).toLocationObservation()
+
+        assertEquals(87.5f, observation?.bearingDegrees)
+    }
+
+    @Test
+    fun `bearing is null when Location never reported one`() {
+        val observation = realLocation(bearing = null).toLocationObservation()
+
+        assertNull(observation?.bearingDegrees)
+    }
+
+    @Test
+    fun `bearingAccuracyDegrees is captured when Location reports it`() {
+        val observation = realLocation(bearingAccuracy = 15.0f).toLocationObservation()
+
+        assertEquals(15.0f, observation?.bearingAccuracyDegrees)
+    }
+
+    @Test
+    fun `bearingAccuracyDegrees is null when Location never reported one`() {
+        val observation = realLocation(bearingAccuracy = null).toLocationObservation()
+
+        assertNull(observation?.bearingAccuracyDegrees)
+    }
+
+    @Test
+    fun `speedAccuracyMetersPerSecond is captured when Location reports it`() {
+        val observation = realLocation(speedAccuracy = 0.8f).toLocationObservation()
+
+        assertEquals(0.8f, observation?.speedAccuracyMetersPerSecond)
+    }
+
+    @Test
+    fun `speedAccuracyMetersPerSecond is null when Location never reported one`() {
+        val observation = realLocation(speedAccuracy = null).toLocationObservation()
+
+        assertNull(observation?.speedAccuracyMetersPerSecond)
+    }
+
+    @Test
+    fun `elapsedRealtimeNanos is captured directly, with no presence gate`() {
+        val observation = realLocation(elapsedRealtimeNanos = 123_456_789_000L).toLocationObservation()
+
+        assertEquals(123_456_789_000L, observation?.elapsedRealtimeNanos)
+    }
+
+    @Test
+    fun `elapsedRealtimeNanos defaults to 0 when Location never set it, matching the documented sentinel`() {
+        val observation = realLocation(elapsedRealtimeNanos = null).toLocationObservation()
+
+        assertEquals(0L, observation?.elapsedRealtimeNanos)
+    }
+
+    @Test
+    fun `isMockLocation is true when the Location came from a mock provider`() {
+        val observation = realLocation(isMock = true).toLocationObservation()
+
+        assertTrue(observation?.isMockLocation == true)
+    }
+
+    @Test
+    fun `isMockLocation is false for an ordinary real Location`() {
+        val observation = realLocation(isMock = false).toLocationObservation()
+
+        assertFalse(observation?.isMockLocation == true)
     }
 }

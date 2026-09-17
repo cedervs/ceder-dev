@@ -188,6 +188,243 @@ A ~15 s fixed foreground sampling interval can leave H3 cells physically crossed
 - any Global/À pied transport-mode distinction (the scheduler's inputs are purely physical/sensor-derived and stay mode-agnostic by construction);
 - any Certified-side change (none made; client-side reconstruction has no authority there regardless).
 
+## Trajectory reconstruction / map matching — Phase 1 foundations — PARTIALLY IMPLEMENTED, inactive by default
+
+Follows a dedicated architecture study this round (grounded in `docs/discovery-engine.md` §24/§26 and `docs/certified-mode.md` §8/§10, and in a real 20-minute physical background-tracking test — 43/15/11/11 observations across 4 phases, background cadence ≈27s in that test) that concluded the real product problem is **observation spacing during fast movement**, not a tracking failure, and that a future reconstruction engine should work on a real geographic trajectory (eventually road-network map matching), converting to H3 only at the very end — **not** on the H3 grid directly, unlike the [Spatial continuity / reconstruction](#spatial-continuity--reconstruction--partially-implemented-inactive-by-default) section above, which remains a separate, still-inert, H3-only mechanism. The two are intentionally not merged: this section's `com.cedervs.worlddiscovery.core.discovery.trajectory` package never imports an H3 type, and nothing here activates `ForegroundReconstructionScheduler`/`DenyAllReconstructionEligibilityPolicy`.
+
+**No reconstruction runs anywhere in this app.** This phase built only the durable domain boundary a future strategy will plug into, plus the local buffer that future strategy will read from — **nothing wires either into the live tracking pipeline yet.**
+
+**Correction round (independent Codex review):** an independent review of this phase found and required fixing a real correctness bug in the dedup/identity design and a real concurrency-safety bug in the buffer's processing primitives, both described in detail below. Both are now fixed and tested; the bullets in this section describe the **corrected** design, not the original one. The buffer remains entirely dormant — the correction did not, and did not need to, wire anything into the live pipeline.
+
+**IMPLEMENTED — pure domain models** (`core-discovery-engine`'s `com.cedervs.worlddiscovery.core.discovery.trajectory` package, zero Android/Room/MapLibre/H3/Valhalla-OSRM-GraphHopper dependency by construction): `TrajectoryObservation`/`ObservationWindow` (the reconstruction input shape); `TrajectoryReconstructor` (a `fun interface`, `reconstruct(window, context) -> TrajectoryReconstructionResult`) with `NoOpTrajectoryReconstructor` as the only implementation wired anywhere — it always returns `NoReconstruction`/`CONFIGURATION_DISABLED`, mirroring `DenyAllReconstructionEligibilityPolicy`'s existing "infrastructure exists, nothing activated it" posture; `TrajectoryReconstructionResult` (`AcceptedTrajectory`/`Ambiguous`/`UnsupportedMode`/`InsufficientEvidence`/`NoReconstruction`, every variant explainable via `reasons: List<ReconstructionReason>`); `ReconstructionConfidence` (13 independent, individually-`Unknown`-capable components — gpsQuality, temporalCoherence, gapDurationAndDistance, kinematicPlausibility, observationToCandidateDistance, topologicalContinuity, pathAmbiguity, networkCoverage, transportModeConfidence, bearingCoherence, speedCoherence, modeChangeLikelihood, graphFreshness — deliberately never collapsed into one float); `TransportMode`/`TransportModeHypothesis`; `ObservationCadenceRecommendation`/`ObservationCadenceLevel` (`NORMAL`/`INCREASED`/`HIGH`) — a pure *intention* contract a future strategy could emit, never itself touching `LocationRequest`/`FusedLocationProviderClient` parameters. **`AcceptedTrajectory`'s invariants are enforced at construction (corrected/hardened this round)**: `geometry.size >= 2`; every `observedIndices`/`inferredIndices` entry is a valid `geometry` index; the two sets never overlap; their union covers every `geometry` index (no point without a provenance); `engineVersion >= 1`; `inputObservationCount > 0` and every `observationMatches[i].observationIndex` is a valid index into that count (the field that makes this validatable at all, since `ObservationNetworkMatch` alone has no visibility into the input window's size); `geometry`/`observedIndices`/`inferredIndices`/`parameters`/`observationMatches`/`reasons` are defensively copied so a caller mutating its own list/set/map after construction cannot affect the built instance (`reasons` was missed in the first hardening pass and added in the second review round). `ObservationNetworkMatch.distanceMeters`, when present, must be finite and `>= 0`, and `observationIndex` must be non-negative.
+
+**Product nuance on `NoReconstruction`, recorded now for whichever strategy eventually replaces `NoOpTrajectoryReconstructor`:** it is a normal, explicit, expected result — but on a clearly road-based movement, a future strategy should make a genuine effort to reconstruct via the network before falling back to it. `NoReconstruction` is a safety net for real ambiguity/insufficient evidence/incompatible networks, never a default first response to any gap.
+
+**IMPLEMENTED — the local trajectory buffer** (Codex review round's own explicit product approval: bounded, short-lived, local, private raw-coordinate storage *for reconstruction purposes only*, distinct from `discovered_cells`): `BufferedObservationRecord` (pure domain shape) / `BufferedObservationEntity` (`:core-database`, table `buffered_observations`) in a **separate database**, `TrajectoryBufferDatabase` (`trajectory_buffer.db`) — deliberately never sharing `WorldDiscoveryDatabase`'s file, for two reasons: (1) backup-exclusion targeting by filename (see below) without touching `world_discovery.db`'s own backup eligibility, (2) blast-radius isolation of a genuinely different-lifecycle dataset. `discovered_cells`/`WorldDiscoveryDatabase` remain completely unmodified, still schema version 1.
+
+- **Deduplication — fix identity vs. delivery metadata**: `buildObservationDedupKey` (pure, tested) never uses a bare `(timestamp, lat, lon)` triple, and — **corrected this round** — never uses `source`/`processSessionId`/`batchId`/`indexInBatch` either, since those are *delivery metadata* (how/where a fix arrived), not *fix identity* (which physical GPS fix it is). The original version of this key did include `source`/`processSessionId`, which meant the exact same Android fix redelivered under a different source (a foreground/background transition) or a different process session (a process restart, a redelivered `PendingIntent` picked up by a fresh process) was wrongly treated as a new physical observation — a real bug, not a style preference. Primary identity is now `elapsedRealtimeClockDomainId + elapsedRealtimeNanos` (`FixIdentityGuarantee.STRONG`) when `elapsedRealtimeNanos` is genuinely available (non-zero) — a monotonic per-fix nanosecond reading Android assigns once, only ever comparable within the same clock domain (a different clock domain with a coincidentally identical `elapsedRealtimeNanos` is never assumed to be the same fix). A `0` `elapsedRealtimeNanos` (never genuinely available, e.g. a hand-built test fixture) falls back to a `FixIdentityGuarantee.WEAK` key built from `(providerTimeEpochMillis, lat, lon, accuracyMeters)` — deterministic, still never a bare triple, but explicitly documented as lacking the strong path's collision-free guarantee; the two guarantee levels carry disjoint key prefixes so they can never collide with each other. Enforced by a `UNIQUE` index plus `OnConflictStrategy.IGNORE` at the DAO — insertion is atomic and idempotent by construction, never a separate racy exists-check.
+- **Ordering**: `Location.time` (wall clock) is explicitly never trusted as monotonic (device clock/NTP/timezone adjustment). `elapsedRealtimeNanos` is the trustworthy *relative* signal, but only within one `elapsedRealtimeClockDomainId`. **Clock-domain production status: NOT WIRED / ENGINEERING DESIGN REQUIRED.** Android exposes no stable, permission-free per-boot UUID, and this phase deliberately does **not** fabricate a boot identity — an earlier version of this document inaccurately described a "real capture path" that conservatively equated `elapsedRealtimeClockDomainId` with `processSessionId`; no such capture path exists (nothing in this codebase calls `buildBufferedObservationRecord` at all), so that claim has been removed. A future implementation must either find and wire a genuine boot-scoped signal, or make an explicit, reviewed engineering decision to treat every process session as its own clock domain (conservative: never wrongly merges two domains, at the cost of treating a mere process restart as a new one). Test code that sets the two fields equal is exercising dedup logic only, not asserting production behavior. `BufferedObservationRecord.id` (Room `AUTOINCREMENT`, never reused even after a purge empties the table) is the always-available, always-monotonic *retrieval/insertion* order — **never a claim about the physical order of the underlying trip**; a future window-normalizer must still apply the same clock-domain-scoped `elapsedRealtimeNanos` comparison rule above, never a naive cross-domain comparison, with wall-clock time treated only as secondary/anomaly-detection information.
+- **Crash recovery — atomic claim/lease (corrected across two review rounds)**: `PENDING -> PROCESSING -> PROCESSED` states (plus `DISCARDED`, for retention acting directly). The original version of this primitive split claiming into two separate calls — `pendingObservationsOrderedBySequence()` then a separate `markProcessing(ids)` — which had a real race: two concurrent workers could both read the same `PENDING` ids before either marked them, and both would then believe they owned the same rows. This became a single atomic operation, `TrajectoryObservationBufferRepository.claimPendingObservations(limit, claimedAt)` (Room `@Transaction`), but its **first version still had a gap a second review round found**: the claim's ownership token was a caller-supplied `String`, and the DAO's read-back query filtered by that token alone (`rowsForToken`) — so a token accidentally reused across two claim calls (a caller bug, not a repository guarantee) would make the second claim's result silently include the first claim's rows too. **Corrected**: the token (`ClaimToken`, a validated, non-blank value type) is now generated internally by the repository's own `ClaimTokenGenerator` (`UuidClaimTokenGenerator` in production) and simply returned to the caller inside a `ClaimedObservationBatch(claimToken, observations)` — a caller can no longer construct or supply one. The DAO's read-back (`rowsForIdsAndToken`) is additionally scoped to the exact ids selected by *this* call, not just the token, so the result is correct even in the token-reuse scenario as defense in depth, not only because tokens are now unique by construction. `markProcessed(ids, claimToken, processedAt)` only affects rows currently owned by that exact token, so a worker can never terminate a lease it does not own. `reclaimStalledProcessing(olderThan)` resets a stale `PROCESSING` row (a process that claimed but crashed before calling `markProcessed`) back to `PENDING`, **clearing the old `claimToken`** so a late `markProcessed` call from the original (now-stale) owner cannot terminate whichever newer lease a subsequent claim gives the row. `claimPendingObservations`'s `limit` must be strictly positive — `0` or negative is rejected (`IllegalArgumentException`), never silently treated as "unlimited"; `pendingObservationsOrderedBySequence` (unbounded, nullable `limit`) remains the separate read-only diagnostic path for "give me everything". A `BufferedObservationRecord` can no longer even be *constructed* in an impossible combination (`PROCESSING` without a `claimToken`/`processingStartedAt`, `PENDING`/`DISCARDED` with one, `PROCESSED` without a retained `claimToken`/timestamps) — this used to be documented only, now it is a constructor-level invariant (`IllegalArgumentException` on violation), closing the gap the second review round flagged (the type only *said* this was impossible; nothing enforced it). `pendingObservationsOrderedBySequence()` still exists as a **read-only, non-claiming** snapshot for diagnostics/tests — explicitly documented as never safe to use for deciding what to process, since a concurrent claim can remove any of its rows before the caller acts. The claim/lease primitives are tested against a real in-memory Room database (`RoomTrajectoryObservationBufferRepositoryTest`), including a dedicated regression test that deliberately injects a broken/reusing `ClaimTokenGenerator` to prove the id+token scoping holds even then; see this document's own honesty note below on what that test suite can and cannot prove about genuine multi-thread concurrency. No component transitions any row to `PROCESSING`/`PROCESSED` in the live app yet.
+- **Retention**: `TrajectoryBufferRetentionPolicy` — `maxAge`/`maxObservationCount` independently optional, **exact values CALIBRATION REQUIRED, not decided here** (mirrors `DiscoveredRoute.kt`'s own `*_CALIBRATION_REQUIRED` convention). `purgeAccordingTo` evaluates the policy **live** against `now` and each row's own `receivedAt` (never a value frozen at insert time), so changing the policy takes effect immediately across everything already buffered. Purge never removes a row currently `PROCESSING` (an active lease), regardless of how old it is — a stale lease must go through `reclaimStalledProcessing` first, so purge can never silently delete a row a worker still believes it owns. No byte-size bound is modeled — `maxObservationCount` is the practical, testable proxy, since precisely enforcing on-disk SQLite/WAL size is disproportionate complexity for this bounded buffer's small, roughly-fixed row size. **Corrected this round: no implicit unbounded construction is possible any more.** The first correction round renamed the "no bound" constant to `unboundedForTestingOnly()`, but a second review round found this was cosmetic: the primary constructor (`TrajectoryBufferRetentionPolicy(maxAge = null, maxObservationCount = null)` by default) remained public, so a call site could still silently end up unbounded without ever calling that function. The constructor is now **private**; every instance is built through a named factory — `boundedByAge(...)`, `boundedByCount(...)`, `bounded(...)`, or `unboundedForTestingOnly()` — so an unbounded policy can now only be reached by a future call site explicitly typing "ForTestingOnly". `maxAge`/`maxObservationCount` themselves remain CALIBRATION REQUIRED either way.
+- **Privacy / backup**: `app/src/main/res/xml/data_extraction_rules.xml` (API 31+) and `backup_rules.xml` (API 26-30, still consulted by `android:fullBackupContent` on those levels) exclude `trajectory_buffer.db` and its WAL/SHM/journal companion files from Android Cloud Backup / Auto Backup / device-transfer **by name only** — `world_discovery.db` is untouched, still eligible for backup exactly as before this round. **A `DELETE` is a genuine SQL delete, not a claim of forensic erasure**: SQLite's WAL journal can retain recently-written bytes until checkpointed, and no `PRAGMA secure_delete` or equivalent is enabled (a real cost/behavior tradeoff, not attempted without explicit review). Never exposed to `feature-map`/`feature-journey` — no repository or DAO reference exists outside `:core-discovery-engine`/`:core-database`.
+- **`receivedAt` vs. `observedAt`**: `observedAt` is the fix's own Android-reported time (`Location.time`); `receivedAt` is meant to be the moment World Discovery's own process actually ingested the observation. **Since the buffer is not wired into any live pipeline, nothing in this codebase actually produces a real `receivedAt` today** — every value seen in tests is supplied directly by test code, not derived from a real clock. A future wiring point should obtain it from an injectable `Clock`-style boundary (matching this codebase's testability conventions elsewhere), not `Instant.now()` called inline at an arbitrary point in real tracking code — that boundary is not designed here, since no real tracking code calls into this buffer yet.
+
+**On testing genuine concurrency (honesty note):** `RoomTrajectoryObservationBufferRepositoryTest` proves the claim/lease *invariants* — that two sequential claims never return overlapping rows, that a stale token can never terminate a lease it no longer owns, that a reclaimed row's new owner is the only one who can complete it, and that a claimed row always carries both lease fields together — using real, sequential (not genuinely multi-threaded) calls against a real in-memory Room database. It does **not** attempt a true concurrent-thread race against Robolectric's SQLite, since that would be inherently timing-dependent and would make the suite flaky rather than reliably prove anything; the atomicity guarantee itself comes from Room's `@Transaction` wrapping the claim's select/update/read-back into one SQLite transaction, which is a property of the underlying transaction mechanism, not something a flaky thread-race test would prove more convincingly than the deterministic invariant tests already do.
+
+**IMPLEMENTED — Android metadata capture, all three tracking paths uniformly**: `LocationObservation` gained `bearingDegrees`, `bearingAccuracyDegrees`, `speedAccuracyMetersPerSecond`, `elapsedRealtimeNanos`, `isMockLocation` — all with defaults, so every existing construction call site (tests included) keeps compiling unchanged. Captured in the one shared `Location.toLocationObservation()` extension already used by all three paths (one-shot, foreground, background), so this required **zero changes** to `FusedLocationProvider`/`FusedLocationUpdatesProvider`/`extractBackgroundLocationObservations` themselves. **Capturing a signal is not the same as acting on it** — no acceptance/rejection criterion changed. `buildBufferedObservationRecord` (`:core-location`) bridges a `LocationObservation` into a `BufferedObservationRecord`, ready for `TrajectoryObservationBufferRepository.insert` — **nothing in this codebase calls it yet, and `NoOpTrajectoryReconstructor` remains the only `TrajectoryReconstructor` that exists anywhere, itself not wired to anything either.**
+
+**DECIDED / NOT IMPLEMENTED (explicitly deferred past this phase, per this round's own scope):**
+- wiring the buffer into the live tracking pipeline at all (`AppContainer`, `LocationTrackingSession`, `SubmitBackgroundLocationObservations`, `FusedLocationUpdatesProvider`) — which call sites, what threading/performance guarantee on the hot location-callback path, any consent gating beyond what already governs whether location processing happens at all;
+- any real `TrajectoryReconstructor` implementation, geometric or network-based;
+- choosing a map-matching engine/graph source (Valhalla/OSRM/GraphHopper/other) — deliberately not evaluated further this round beyond the prior architecture study;
+- converting any `TrajectoryReconstructionResult` into H3 cells or a `Provenance.RECONSTRUCTED` `DiscoveredCell` — `SubmitDiscoveryObservation`/`DiscoveredCellMerger`/`discovered_cells` are completely untouched by this phase;
+- any change to the derived first-discovery corridor (`DiscoveredRoute.kt`) — unmodified;
+- any change to current GPS cadence (foreground interval, background interval/`maxUpdateDelay`/priority) — unmodified;
+- any Certified-side change — none made; a future `TrajectoryReconstructionResult` has no Certified authority regardless (`docs/certified-mode.md` §8/§10 already require server validation for any reconstructed candidate).
+
+**ENGINEERING DESIGN REQUIRED:**
+- a genuine, reliable source for `elapsedRealtimeClockDomainId` (a real Android boot-scoped signal, if one can be found and justified) — or an explicit, reviewed decision to keep treating every process session as its own clock domain instead; neither is decided yet (see the "Ordering" bullet above);
+- the actual windowing/segmentation policy that decides where one `ObservationWindow` starts/ends (gap-based trip boundaries vs. a fixed count/time span) — `ObservationWindow` itself only enforces non-empty, no boundary policy exists;
+- a real `TrajectoryReconstructor` implementation and, eventually, its graph/network integration — see `docs/ai-context/MAP_MATCHING_ENGINE_STUDY.md` (Phase 2A) for the Valhalla/Meili vs. OSRM Match vs. GraphHopper Map Matching technical study; no engine chosen, no benchmark run yet, no integration;
+- the future adaptive-cadence *consumer* (a component that reads an `ObservationCadenceRecommendation` and actually adjusts real Android location parameters) and its hysteresis/debounce state machine — the contract exists, no machinery reads it;
+- live-pipeline wiring for the buffer once the above is ready to consume it, including where a real `receivedAt` (see above) and `claimPendingObservations`/`markProcessed`/`reclaimStalledProcessing` calls would actually be driven from.
+
+**CALIBRATION REQUIRED:**
+- `TrajectoryBufferRetentionPolicy`'s actual `maxAge`/`maxObservationCount` values;
+- the stale-lease reclaim timeout (`reclaimStalledProcessing`'s `olderThan` distance from "now") once a real consumer exists to drive it;
+- any future `ReconstructionConfidence` component's actual computation and acceptance threshold;
+- `ObservationWindow` sizing/boundary parameters once a windowing policy exists;
+- `ObservationCadenceRecommendation` trigger thresholds and hysteresis timing, once a consumer exists.
+
+## Reconstruction Safety Gate — Phase 3A (Correction Round 3 applied) — IMPLEMENTED (domain contract only), inactive by default
+
+Follows the Phase 2B real-ground-truth map-matching benchmark (`docs/ai-context/PHASE_2B_BENCHMARK_PROTOCOL.md`)
+but deliberately produces **no production decision, no matcher selection, and no live wiring**.
+
+**This section describes the design after three independent Codex re-review rounds.** Round 1 fixed
+fail-open acceptance, a weak candidate/evidence association check, a bypassable bridge check,
+unvalidated contradictory evidence, no transport-mode check, an over-permissive policy, and a decision
+type fabricable outside the gate. Round 2 found the Round 1 fixes for candidate/evidence identity,
+matcher-declined-bridge protection, and numeric safety were still each insufficient, and found the
+Round 1 "authorization boundary" doc comment made a false claim about Kotlin visibility. **Round 3
+found one remaining blocker in Round 2's own observation-window identity (Layer A below): on
+`buildObservationDedupKey`'s `STRONG` path, dedup identity depends only on
+`elapsedRealtimeClockDomainId`/`elapsedRealtimeNanos`, so two observations sharing that pair but
+differing in content (e.g. coordinate) could still receive the same window identity — fixed by binding
+observation *content*, not only dedup identity, into Layer A.** The design below is the corrected,
+current, real behavior.
+
+**Core architectural principle** (unchanged): a map matcher/`TrajectoryReconstructor` proposes a
+reconstruction; it never directly authorizes discovered cells. `observations -> reconstruction
+candidate -> reconstruction evidence -> SAFETY GATE -> decision -> (future) H3/discovery processing`.
+
+**Mandatory positive-evidence contract for acceptance** (Round 1, unchanged in spirit, now including
+two additional mandatory identity layers). `AcceptReconstruction` is **fail-closed**: reached only
+once every mandatory fact is *affirmatively* established — never merely because nothing *known* is
+wrong.
+
+**Candidate/evidence association — three independent layers (Round 2 rewrite).** Round 1 shipped a
+single geometry/provenance fingerprint (`ReconstructionCandidateIdentity`) and claimed it solved
+candidate/evidence association; Round 2's re-review correctly found this insufficient — a geometry-only
+fingerprint cannot prove which *original ordered observations*, or which *matcher run*, produced a
+candidate (two different observation windows can honestly reconstruct to byte-for-byte identical
+geometry/indices/endpoints). Three layers are now checked, in order, each decisive on a real mismatch:
+1. **Layer A — observation window** (`OrderedObservationWindowIdentity`, new type). **Ordered
+   observation-window identity binds the ordered observation dedup identity plus a canonical
+   safety/reconstruction-relevant `TrajectoryObservation` content fingerprint — not "raw byte
+   identity" and not the dedup key alone.** Computed directly from the ordered raw
+   `TrajectoryObservation` sequence itself (never reconstructed later from candidate geometry).
+   **Correction Round 3 fix**: the first version of this type stored only
+   `buildObservationDedupKey`'s own output per observation — on that function's `STRONG` dedup path
+   (`elapsedRealtimeClockDomainId` + `elapsedRealtimeNanos` alone), two observations sharing that
+   pair but differing in content (e.g. coordinate) produced the *same* dedup key and therefore could
+   receive the same window identity. `buildObservationDedupKey`'s own semantics are unchanged by this
+   fix — dedup identity ("is this a redelivery of the same physical fix") and content identity ("what
+   does this observation actually say") are now bound *both*, per observation
+   (`ObservationIdentityEntry(dedupKey, contentFingerprint)`).
+   - **Canonical content fields included** (`ObservationContentFingerprint`): latitude/longitude
+     (raw `Double`, unrounded); `observedAt`'s epoch-second + nanosecond decomposition (full
+     precision, timezone-free, locale-free — `Instant` is always UTC internally, so decomposing it
+     this way rather than formatting it is what makes "timezone/locale independent" concrete rather
+     than merely asserted); `elapsedRealtimeClockDomainId`/`elapsedRealtimeNanos` (also part of the
+     dedup key, but restated here directly is exactly what closes this round's blocker);
+     accuracy/speed/speed-accuracy/bearing/bearing-accuracy (each stored as the source `Float`'s own
+     `toRawBits()` `Int` when present, `null` when the source field itself is `null` — a genuine
+     `0.0f` reading and "never measured" are never conflated); `provider`; `isMockLocation`.
+   - **Intentionally excluded fields, and why**: `receivedAt` (when *this app process* ingested the
+     fix — delivery timing, not fix content), `source` (acquisition path), `processSessionId`
+     (which process instance received it), `batchId`/`indexInBatch` (background-batch delivery
+     bookkeeping) — all *delivery metadata*, mirroring this exact codebase's own established
+     `buildObservationDedupKey` rationale for excluding the same kind of field from *that* key.
+     `TrajectoryObservation` has no altitude field today; none was invented.
+   - **Equality/collision semantics**: equality is over the full ordered `List<ObservationIdentityEntry>`
+     (order-sensitive — reordering the same observations changes identity); `sequenceChecksum` remains
+     a purely supplementary/debug signal, never the sole discriminator, matching this package's own
+     `ReconstructionCandidateIdentity.geometryChecksum` convention.
+   - Carried by `AcceptedTrajectory.observationWindowIdentity: OrderedObservationWindowIdentity?`
+     (new field, default `null`) and required on `ReconstructionSafetyEvidence.observationWindowIdentity`
+     (mandatory). Mismatch: `OBSERVATION_WINDOW_MISMATCH` (hard failure). Candidate-side `null`:
+     `OBSERVATION_WINDOW_IDENTITY_UNKNOWN` (blocks acceptance, not a hard failure).
+2. **Layer B — matcher run** (`MatcherRunIdentity`, new opaque value type, mirrors this package's own
+   `ClaimToken`/`ClaimTokenGenerator` pattern): replaces Round 1's free-form `matcherEvaluationId:
+   String`, which the gate had nothing to independently compare against. Produced once at the
+   reconstruction/matching boundary and propagated into both `AcceptedTrajectory.matcherRunIdentity`
+   (new field, default `null`) and `ReconstructionSafetyEvidence.matcherRunIdentity` (mandatory).
+   Mismatch: `MATCHER_RUN_MISMATCH` (hard failure). Candidate-side `null`:
+   `MATCHER_RUN_IDENTITY_UNKNOWN`.
+3. **Layer C — candidate geometry/provenance** (`ReconstructionCandidateIdentity`, Round 1's original
+   type, KDoc corrected to state only what it actually covers): an independent sanity check (e.g. a
+   non-deterministic matcher reconstructing different geometry from the same window/run), not proof of
+   layers A or B. Mismatch: `EVIDENCE_CANDIDATE_MISMATCH` (hard failure, checked last).
+
+**Matcher-declined-continuity protection is now edge-based, not vertex-based (Round 2 rewrite of the
+Round 1 fix).** Round 1 checked whether a declined interval (in candidate-geometry-vertex space)
+overlapped the candidate's `inferredIndices` — Round 2's re-review found a real gap: a dangerous
+bridge can exist between two geometry vertices that are **both** labelled `observed`, with no inferred
+vertex anywhere, if the underlying raw observations they came from were not adjacent in the original
+window or their connecting path was never independently confirmed. `EdgeRange`/`MatcherDeclinedInterval`
+now operate in **observation-window edge space** (edge `i` connects original observation `i` to
+`i+1`, valid `0..inputObservationCount-2`), compared against a new mandatory
+`AcceptedTrajectory.bridgedObservationEdges: Set<Int>` field (no default — a default of `emptySet()`
+would silently under-report bridging, the same fail-open shape Round 1's B1 fix closed elsewhere) —
+the candidate's own honest disclosure of which observation-window edges it bridged/inferred, entirely
+independent of geometry-vertex `observedIndices`/`inferredIndices` labels. Real edge overlap:
+`UNSUPPORTED_BRIDGE` (hard failure). A declined interval referencing an edge index beyond the
+candidate's valid range: `DECLINED_EDGE_OUT_OF_BOUNDS` (hard failure — the evidence cannot
+structurally describe this candidate's window at all). Still non-negotiable — no
+`ReconstructionSafetyPolicy` field controls this check.
+
+**Numeric-extreme safety (Round 2 fix to the Round 1 relational-coherence check).** Round 1's
+duration/displacement/speed coherence check had two real bugs: `Duration.toNanos()` throws
+`ArithmeticException` for an otherwise-constructible extreme `Duration` (beyond ~292 years in
+nanoseconds), and a derived speed could legitimately evaluate to `Infinity` (e.g. 1 nanosecond against
+`Double.MAX_VALUE` meters) — and `Infinity <= Infinity` is `true` in IEEE-754, so the old tolerance
+check could silently *validate* a contradiction. `ObservationEvidence`'s derived-speed computation now
+uses `Duration.getSeconds()`/`getNano()` (never throws) and explicitly requires the derived speed
+itself to be finite before any tolerance comparison — a non-finite derived quantity is unconditionally
+incoherent, never silently waved through.
+
+**UNKNOWN matcher classification (Round 2 minor fix).** `MatcherEvidence` gained a fourth accounting
+bucket, `unknownClassificationObservationCount`, alongside matched/interpolated/unmatched — real
+benchmark matcher output can classify some observations as none of the three. Included in the gate's
+exact-partition check; any known positive count adds `UNCLASSIFIED_OBSERVATIONS_PRESENT` (uncertainty)
+unconditionally — never silently dropped, never treated as supporting acceptance.
+
+**Decision-construction authorization boundary — corrected claim (Round 2).** Round 1 claimed
+`ReconstructionSafetyDecision`'s `internal fun of(...)` factory was the authorization boundary,
+closing cross-module fabrication but honestly leaving same-module fabrication open. Round 2 attempted
+a stronger fix (`ReconstructionAuthorization`, a type nested inside `DeterministicReconstructionSafetyGate`
+with a private constructor) and **found, via the real compiler, that the intended guarantee does not
+hold**: Kotlin's `private` visibility for a class member does not extend from a nested class to its
+enclosing class the way Java's mutual nested/outer private access does — `authorize()` (a member of
+the *outer* object) cannot call the nested class's own private constructor. **Kotlin has no
+"friend class" feature; "constructible only from inside one specific other class" is not expressible
+in Kotlin's visibility system without a custom compiler plugin or a separate Gradle module boundary.**
+What is actually implemented: `DeterministicReconstructionSafetyGate.authorize(...)` returns an
+`EvaluationResult(decision, authorization)`; `authorization: ReconstructionAuthorization?` is
+non-null only for an `AcceptReconstruction` decision, constructed via
+`ReconstructionAuthorization`'s own companion (`internal fun grantedByGateEvaluation`, standard
+Kotlin class/companion private-sharing) — the same `internal`, module-wide ceiling Round 1's `of`
+factory already sits at, **not a stronger compile-time guarantee**. What this design still adds: a
+separate, deliberately awkwardly-named, non-`operator` type a future consumer must specifically ask
+for, rather than treating the far more ordinary-looking `AcceptReconstruction` as sufficient proof —
+a real structural/naming improvement, honestly not a single-caller compiler guarantee.
+
+**Rules directly encoding Phase 2B's own accepted findings** (unchanged from Round 1, re-verified):
+matcher-declined edges alone are never automatically unsafe (2B-5's central finding — only real
+edge-overlap with a candidate-claimed bridge is `UNSUPPORTED_BRIDGE`); weak/unavailable matcher
+confidence is always uncertainty, never hard failure; duration and a qualitative network-complexity
+label are collected but never read by any rule (2B-5's own duration/complexity findings); cross-matcher
+disagreement only ever adds uncertainty, never resolved by majority vote; the OSRM-27s benchmark
+regression fixture is correctly attributed to a single-continuous-match-no-split lesson (2B-2C), with
+the split/bridge lesson correctly attributed to 2B-5.
+
+**Invariants enforced at construction:** every evidence group's known numeric fields validated
+non-negative/finite/in-range plus relational coherence (Round 2 numeric-extreme fix included);
+`AcceptedTrajectory`'s new invariants (`bridgedObservationEdges` entries valid against
+`0..inputObservationCount-2`, `observationWindowIdentity.observationCount` must equal
+`inputObservationCount` when present); `ReconstructionSafetyPolicy`'s ranges (including Round 1's
+finite-bound/`>= 1` checks); `ReconstructionSafetyDecision`'s reason-category rules and defensive
+copying; `MatcherEvidence.declinedIntervals`'s defensive copy. Candidate/evidence association (all
+three layers) and matcher-accounting-vs-candidate-total coherence are enforced inside `evaluate` itself
+(they need the actual evaluated candidate) rather than at a shared constructor — deliberate, documented.
+
+**Tests**: 206/206 passing (manual `kotlinc`/JBR toolchain, `-Xfriend-paths` for `internal` factories)
+across `ReconstructionSafetyGateTest`, `ReconstructionSafetyIdentityAssociationTest` (Layers A/B),
+`ObservationWindowContentIdentityTest` (Round 3's own STRONG-dedup-path blocker reproduction, full
+per-field content-mutation matrix, reordering, cross-construction stability, and a dedicated gate-level
+stale-content-evidence regression), `EdgeContinuityTest` (the full edge-boundary/validation matrix),
+`ReconstructionEvidenceCoherenceTest` (numeric-extreme + 4-way accounting), `AuthorizationBoundaryTest`,
+`ReconstructionSafetyPolicyTest`, `ReconstructionSafetyEvidenceTest`, `ReconstructionSafetyDecisionTest`,
+`ReconstructionSafetyBenchmarkRegressionFixturesTest`, and the pre-existing `TrajectoryReconstructorTest`
+(extended with the new `AcceptedTrajectory` fields' own invariant tests). Full module (main + entire
+pre-existing test sourceset) compiles with zero errors once `-Xfriend-paths` is applied.
+
+**DECIDED / NOT IMPLEMENTED, deliberately deferred:** wiring the gate into any live pipeline; calling
+it from a real `TrajectoryReconstructor`; converting an accepted decision into
+H3/`Provenance.RECONSTRUCTED`; adaptive-cadence consumption of `RequireMoreEvidence.cadenceRecommendation`;
+Certified reconstruction policy; choosing a map-matching engine; any change to `discovered_cells`,
+`DiscoveredRoute.kt`, GPS cadence, or `Provenance`/`TrustStatus`.
+
+**CALIBRATION REQUIRED (numeric values only — every structural safety rule above is `IMPLEMENTED`,
+not a calibration question):** every `ReconstructionSafetyPolicy` field; `NetworkRouteEvidence.pathContinuityMagnitude`'s
+eventual threshold.
+
+**Known, honestly-documented limitations:** (1) a confidently-wrong single continuous matcher output
+with no split/low-confidence/other unfavorable signal remains outside this generic gate's reach (the
+2B-2C regression fixture); (2) `MatcherRunIdentity` distinguishes evidence from different runs but
+cannot detect a caller mixing up which run was *intended*; (3) the authorization boundary
+(`ReconstructionAuthorization`) is `internal`, module-wide — **not** a single-caller compiler
+guarantee; Kotlin has no mechanism to express that without a compiler plugin or a separate module
+boundary, and this is now stated accurately rather than overclaimed; (4) `bridgedObservationEdges`
+correctness depends entirely on the producer honestly disclosing which edges were bridged — the gate
+has no independent way to verify that disclosure itself.
+
+**Gradle**: one `:core-discovery-engine:test` attempt this round again hit the same standing
+"`Unable to establish loopback connection`" JVM/Windows environment failure — not retried past that
+single attempt. Verified instead via the manual `kotlinc`/JBR toolchain (full module compile, zero
+errors).
+
 ## Lifecycle/reboot — IMPLEMENTED
 Foreground and background tracking are coordinated by the existing controller. `BootCompletedReceiver` may re-arm background tracking after reboot when consent and permissions permit.
 

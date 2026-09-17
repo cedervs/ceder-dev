@@ -1,12 +1,17 @@
 package com.cedervs.worlddiscovery.core.discovery
 
 /**
- * A raw geographic coordinate, held only transiently — never persisted as discovery truth. Two
- * legitimate transient uses exist: conversion into a [CanonicalCell] (see
- * docs/discovery-engine.md §16 / §23), and live current-position UI rendering (the "where am I
- * right now" map marker, entirely separate from "what have I discovered" — see
- * `docs/ai-context/LOCATION_TRACKING.md`). Neither use ever persists a raw coordinate; the map
- * marker in particular is transient process-memory UI state only, cleared when tracking stops.
+ * A raw geographic coordinate — never persisted as *discovery truth*. Legitimate uses:
+ * conversion into a [CanonicalCell] (see docs/discovery-engine.md §16 / §23), live current-
+ * position UI rendering (the "where am I right now" map marker, transient process-memory UI
+ * state only, cleared when tracking stops — see `docs/ai-context/LOCATION_TRACKING.md`), and,
+ * since the trajectory-reconstruction Phase 1 round, short-lived storage inside the local
+ * trajectory buffer (`com.cedervs.worlddiscovery.core.discovery.trajectory`'s
+ * `BufferedObservationRecord`) — a bounded, private, never-synchronized working set that exists
+ * solely to make future trajectory reconstruction possible, explicitly distinct from
+ * `discovered_cells` (canonical discovery truth) and governed by its own retention policy. None
+ * of these uses ever feed a raw coordinate into `discovered_cells` or any synchronized/exported
+ * data.
  */
 data class Coordinate(val latitude: Double, val longitude: Double) {
     init {

@@ -25,6 +25,7 @@
 **Why rejected:** unnecessary privacy exposure and contrary to derived-cell architecture.
 **Replacement:** transient coordinates → H3-derived discovery state.
 **Do not reintroduce unless:** explicit data/privacy architecture decision.
+**Narrow, explicit exception (trajectory-reconstruction Phase 1 round):** a bounded, short-lived, local-only, never-synchronized trajectory buffer (`com.cedervs.worlddiscovery.core.discovery.trajectory`'s `BufferedObservationRecord` / `:core-database`'s `TrajectoryBufferDatabase`) is an explicit, product-approved exception — see `docs/ai-context/LOCATION_TRACKING.md`'s "Trajectory reconstruction / map matching" section. It exists solely to make future trajectory reconstruction possible, stays physically separate from `discovered_cells`/`WorldDiscoveryDatabase`, is excluded from Android backup, and is governed by its own retention/purge policy. This exception does **not** reopen persistent raw GPS history as a general architecture — `discovered_cells` itself still never stores a raw coordinate, and nothing in this exception is exposed to `feature-map`/`feature-journey` or synchronized to any backend.
 
 ## Client-side certification
 **Why rejected:** client GPS cannot provide authoritative anti-cheat proof.

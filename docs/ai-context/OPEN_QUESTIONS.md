@@ -35,7 +35,8 @@ Confirm XP values/selection policy and any spendability; confirm landmark-public
 - eligibility resolution pipeline and versioned recomputation;
 - geographic sync protocol, outbox/cursors, conflict/idempotence and PostGIS schema;
 - signal fusion and conservative reconstruction algorithm;
-- geometric denominator construction and partial-boundary handling.
+- geometric denominator construction and partial-boundary handling;
+- a genuine `elapsedRealtimeClockDomainId` source (or an explicit reviewed decision to keep treating each process session as its own clock domain), trajectory-reconstruction windowing/segmentation policy, a real `TrajectoryReconstructor` implementation and its eventual road-network/graph integration, and the future adaptive-cadence consumer/hysteresis state machine — see `docs/ai-context/LOCATION_TRACKING.md`'s "Trajectory reconstruction / map matching" section for the Phase 1 foundations already built.
 
 Escalate only if engineering exposes a genuine product tradeoff not covered by normative documents.
 
@@ -45,6 +46,7 @@ Escalate only if engineering exposes a genuine product tradeoff not covered by n
 - presence, movement, signal-quality and noise-rejection thresholds;
 - acceptable GPS-gap duration/ambiguity for reconstruction;
 - eligibility reclassification thresholds;
-- background cadence/battery configuration beyond the current provisional values.
+- background cadence/battery configuration beyond the current provisional values;
+- trajectory buffer retention (`TrajectoryBufferRetentionPolicy`'s `maxAge`/`maxObservationCount`), the stale-lease reclaim timeout (`reclaimStalledProcessing`'s `olderThan`), reconstruction-confidence acceptance thresholds, and adaptive-cadence trigger/hysteresis timing, once their respective consumers exist.
 
 These values must be configurable/versioned where required and validated with reproducible and physical-device tests, not invented or automatically escalated as user decisions.

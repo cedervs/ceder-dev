@@ -1530,3 +1530,212 @@ described in §17 exists only in the current working tree. It is **not**
 part of `d222fd7` or any pushed commit, and must not be assumed to exist
 in a fresh checkout until repository history establishes a newer pushed
 baseline that supersedes this section.
+
+## 20. Trajectory reconstruction — Phase 1 foundations (uncommitted)
+
+Follows a dedicated architecture study (background-tracking physical test:
+Samsung SM-G998U1, 43/15/11/11 observations across 4 phases, background
+cadence ≈27s measured) that concluded observation spacing during fast
+movement — not a tracking defect — is the real product gap, and that a
+future reconstruction engine should work on a real geographic trajectory
+(eventually road-network map matching), converting to H3 only at the end.
+
+**Full detail lives in `docs/ai-context/LOCATION_TRACKING.md`'s "Trajectory
+reconstruction / map matching" section — this entry only summarizes.**
+
+**IMPLEMENTED, inactive by default — no reconstruction runs anywhere:**
+- Pure domain models (`core-discovery-engine`'s new
+  `com.cedervs.worlddiscovery.core.discovery.trajectory` package, zero
+  Android/Room/MapLibre/H3/map-matching-engine dependency): `TrajectoryObservation`,
+  `ObservationWindow`, `TrajectoryReconstructor` (+ `NoOpTrajectoryReconstructor`,
+  the only implementation wired anywhere), `TrajectoryReconstructionResult`
+  (`AcceptedTrajectory`/`Ambiguous`/`UnsupportedMode`/`InsufficientEvidence`/
+  `NoReconstruction`, all explainable), `ReconstructionConfidence` (13
+  independent components, never one collapsed float), `TransportMode`/
+  `TransportModeHypothesis`, `ObservationCadenceRecommendation` (a pure
+  future-cadence-intention contract, never touching real Android location
+  parameters).
+- Local trajectory buffer: `BufferedObservationRecord` / `:core-database`'s
+  `BufferedObservationEntity` in a **new, separate** Room database
+  (`TrajectoryBufferDatabase`, `trajectory_buffer.db`) — never sharing
+  `WorldDiscoveryDatabase`'s file. `discovered_cells`/`WorldDiscoveryDatabase`
+  are completely unmodified, still schema version 1. Idempotent dedup
+  (`buildObservationDedupKey`, keyed only on fix identity —
+  `elapsedRealtimeClockDomainId`/`elapsedRealtimeNanos`, never `source`/
+  `processSessionId`, and never a bare timestamp/lat/lon triple — corrected
+  after an independent review found the original key wrongly included
+  delivery metadata), an atomic claim/lease mechanism
+  (`claimPendingObservations(limit, claimedAt)` returns a
+  `ClaimedObservationBatch`; the repository — never the caller — generates
+  each claim's `ClaimToken` via an injectable `ClaimTokenGenerator`, and the
+  DAO's read-back is scoped to that exact call's selected ids as defense in
+  depth; `limit` must be `> 0`), ownership-checked `markProcessed`, a
+  crash-recovery primitive (`reclaimStalledProcessing`, which also
+  invalidates the old claim's token), `BufferedObservationRecord` state
+  invariants enforced at construction (a row can no longer be built in an
+  impossible `PROCESSING`/`PENDING`/`PROCESSED`/`DISCARDED` + lease-field
+  combination), and an injectable/configurable retention policy
+  (`TrajectoryBufferRetentionPolicy`, private constructor + named factories
+  `boundedByAge`/`boundedByCount`/`bounded`/`unboundedForTestingOnly` so no
+  implicit unbounded construction is possible, never removing an
+  actively-leased row) are all implemented and tested against a real
+  in-memory Room database. See `docs/ai-context/LOCATION_TRACKING.md` for
+  the full corrected design across both review rounds.
+- Backup exclusion: `app/src/main/res/xml/data_extraction_rules.xml` +
+  `backup_rules.xml` exclude `trajectory_buffer.db` (+ WAL/SHM/journal) from
+  Android Cloud Backup/Auto Backup/device-transfer **by name only** —
+  `world_discovery.db`'s own backup eligibility is untouched.
+- `LocationObservation` gained `bearingDegrees`/`bearingAccuracyDegrees`/
+  `speedAccuracyMetersPerSecond`/`elapsedRealtimeNanos`/`isMockLocation`, all
+  defaulted so every existing call site keeps compiling unchanged; captured
+  uniformly by the one shared `Location.toLocationObservation()` used by all
+  three tracking paths (one-shot/foreground/background) — zero changes to
+  those three files themselves. `buildBufferedObservationRecord`
+  (`:core-location`) bridges a `LocationObservation` into the buffer's
+  domain shape — **nothing calls it yet.**
+
+**DECIDED / NOT IMPLEMENTED this round, deliberately deferred:** wiring the
+buffer into the live tracking pipeline; any real `TrajectoryReconstructor`;
+choosing a map-matching engine/graph source; converting any reconstruction
+result into H3/`Provenance.RECONSTRUCTED`; any change to the derived
+first-discovery corridor (`DiscoveredRoute.kt`, untouched); any change to
+current GPS cadence (foreground/background interval, `maxUpdateDelay`,
+priority — all untouched); any Certified-side change.
+
+**Tests (after two Codex-review correction rounds)**: `:core-discovery-engine`
+350/350 (manual toolchain); `:core-location` 191/191 (manual toolchain, same
+4 pre-existing Robolectric-dependent files excluded as prior rounds).
+`:core-database`'s Robolectric-based `RoomTrajectoryObservationBufferRepositoryTest`
+requires Room's KSP codegen, which the manual toolchain cannot perform (each
+round's real Gradle attempt still hits this environment's standing
+loopback/JAVA_HOME failure); its pure `BufferedObservationMapperTest` (5/5)
+was compiled and run manually. `core-database` main sources (including the
+claim/lease DAO) were verified to type-check cleanly against real Room 2.8.4
+classes via the manual toolchain.
+
+**Git**: baseline unchanged at `8c477f298b864e9c3db23ce302c9b742cb4ca3e1`;
+not committed, not pushed; the 7 pre-existing untracked local artifacts
+(`map-doc-diff.txt`, `review-context.txt`, `review.ps1`, `trip1.txt`,
+`trip2.txt`, `trip3.txt`, `vehicle1.txt`) plus the also-untracked
+`tracking-calibration.ndjson` (a pulled physical-device diagnostic file,
+unrelated byproduct of the temporary calibration logger) remain untouched.
+
+## 21. Reconstruction Safety Gate — Phase 3A domain contract, Correction Round 3 applied (uncommitted)
+
+Turns the Phase 2B real-ground-truth map-matching benchmark's accepted
+findings (`docs/ai-context/PHASE_2B_BENCHMARK_PROTOCOL.md`) into a generic,
+engine-neutral domain contract, in the same existing `core-discovery-engine`
+`trajectory` package as item 20 above — no new package, no new module, no
+matcher selected, no live wiring. **Full detail lives in
+`docs/ai-context/LOCATION_TRACKING.md`'s "Reconstruction Safety Gate — Phase
+3A (Correction Round 3 applied)" section — this entry only summarizes.**
+
+**Three independent Codex re-review rounds found real defects.** Round 1:
+fail-open acceptance, weak candidate/evidence association, a policy-bypassable
+bridge check, unvalidated contradictory evidence, no transport-mode check, a
+permissive policy, a decision type fabricable outside the gate. Round 2 found
+Round 1's fixes for candidate/evidence identity, bridge protection, and
+numeric safety were each still insufficient, and found Round 1's
+authorization-boundary doc comment made a false claim about Kotlin
+visibility (corrected, not merely patched over). **Round 3 found one
+remaining blocker: `OrderedObservationWindowIdentity` (Round 2's own Layer A
+fix) stored only `buildObservationDedupKey`'s output — on that function's
+`STRONG` path (`elapsedRealtimeClockDomainId` + `elapsedRealtimeNanos`
+alone), two observations sharing that pair but differing in content (e.g.
+coordinate) could still receive the same window identity. Fixed by binding
+observation content, not only dedup identity, into Layer A.**
+
+**IMPLEMENTED, inactive by default — Round 3 fix:**
+- **`ObservationContentFingerprint`** (new) — a canonical, deterministic,
+  locale-/timezone-independent fingerprint of a `TrajectoryObservation`'s own
+  safety/reconstruction-relevant content: latitude/longitude, `observedAt`'s
+  epoch-second+nanosecond decomposition, `elapsedRealtimeClockDomainId`/
+  `elapsedRealtimeNanos`, accuracy/speed/speed-accuracy/bearing/bearing-accuracy
+  (each as the source `Float`'s own `toRawBits()`, `null` distinguished from a
+  genuine `0.0f`), `provider`, `isMockLocation`. Excludes `receivedAt`/`source`/
+  `processSessionId`/`batchId`/`indexInBatch` as delivery metadata, mirroring
+  this codebase's own established `buildObservationDedupKey` rationale.
+- **`ObservationIdentityEntry(dedupKey, contentFingerprint)`** — binds dedup
+  identity and content identity explicitly, per observation, replacing the
+  bare `orderedObservationKeys: List<String>` field.
+  `OrderedObservationWindowIdentity.orderedObservationIdentities` is now
+  `List<ObservationIdentityEntry>`; equality is over that full list, never
+  the (still-retained, still-supplementary-only) `sequenceChecksum` alone.
+- `buildObservationDedupKey`'s own semantics are unchanged.
+
+**IMPLEMENTED, inactive by default — Round 2 additions (unchanged this round):**
+- **`OrderedObservationWindowIdentity`** (new) — binds identity to the
+  *ordered raw observation sequence* itself (reuses the existing
+  `buildObservationDedupKey` per-observation identity primitive), not
+  candidate geometry. Carried by `AcceptedTrajectory.observationWindowIdentity`
+  (new, nullable) and mandatory on `ReconstructionSafetyEvidence`.
+- **`MatcherRunIdentity`** (new, opaque value type, mirrors this package's
+  own `ClaimToken` pattern) — replaces the free-form `matcherEvaluationId:
+  String` the gate had nothing to compare against. Carried by
+  `AcceptedTrajectory.matcherRunIdentity` (new, nullable) and mandatory on
+  `ReconstructionSafetyEvidence`.
+- Candidate/evidence association is now **three independent layers** (window,
+  run, geometry/provenance) — `ReconstructionCandidateIdentity`'s own KDoc
+  corrected to state it only covers the third.
+- **Edge-based matcher-declined-continuity** — `EdgeRange`/`MatcherDeclinedInterval`
+  now operate in observation-window edge space, compared against a new
+  mandatory `AcceptedTrajectory.bridgedObservationEdges: Set<Int>` field (no
+  default — would silently under-report bridging), fixing a real gap where a
+  vertex-only check could miss a bridge between two `observed`-labelled
+  vertices.
+- **Numeric-extreme safety fix** — `ObservationEvidence`'s derived-speed
+  check no longer uses `Duration.toNanos()` (overflow-throwing) and
+  explicitly rejects a non-finite derived speed before any tolerance
+  comparison (`Infinity <= Infinity` was silently validating before).
+- **`unknownClassificationObservationCount`** added to `MatcherEvidence`'s
+  accounting (now a 4-way exact partition).
+- **`DeterministicReconstructionSafetyGate.authorize(...)`** (new) returns an
+  `EvaluationResult(decision, authorization)`; `ReconstructionAuthorization`
+  is a separate type from the diagnostic `AcceptReconstruction` — **its
+  actual Kotlin guarantee is `internal`, module-wide, the same ceiling
+  Round 1's `of` factory already had; Kotlin has no compiler-enforced
+  single-caller-only construction mechanism**, corrected from an initial
+  (wrong) claim that nesting + a private constructor would achieve that.
+
+**Tests**: 206/206 passing (manual `kotlinc`/JBR toolchain, `-Xfriend-paths`)
+across the Round 1/2 suites plus new `ObservationWindowContentIdentityTest`
+(Round 3's own mandatory STRONG-dedup-path blocker reproduction: same dedup
+key, different coordinate, still a different window identity; a full
+per-field content-mutation matrix; reordering; cross-construction stability;
+and a gate-level regression proving Layer A alone rejects stale-content
+evidence), plus `ReconstructionSafetyIdentityAssociationTest`
+(window/run identity), `EdgeContinuityTest` (edge-boundary/validation
+matrix), `AuthorizationBoundaryTest`, and extensions to
+`ReconstructionEvidenceCoherenceTest` (numeric extremes, 4-way accounting)
+and the pre-existing `TrajectoryReconstructorTest` (new `AcceptedTrajectory`
+field invariants). Full module (main + entire pre-existing test sourceset)
+compiles with zero errors. One `:core-discovery-engine:test` Gradle attempt
+this round again hit the same standing loopback-connection environment
+failure; not retried.
+
+**DECIDED / NOT IMPLEMENTED:** wiring the gate into any live pipeline or a
+real `TrajectoryReconstructor`; converting an accepted decision into
+H3/`Provenance.RECONSTRUCTED`; adaptive-cadence consumption; Certified
+reconstruction policy; choosing a map-matching engine; any change to
+`discovered_cells`, `DiscoveredRoute.kt`, GPS cadence, or
+`Provenance`/`TrustStatus`.
+
+**CALIBRATION REQUIRED (numeric values only):** every `ReconstructionSafetyPolicy`
+field; `NetworkRouteEvidence.pathContinuityMagnitude`'s eventual threshold.
+
+**Known, honestly-documented limitations:** a confidently-wrong single
+continuous matcher output with no other unfavorable signal is outside this
+gate's reach (2B-2C regression fixture); `MatcherRunIdentity` can't detect a
+caller mixing up which run was *intended*; the authorization boundary is
+`internal`/module-wide, not a compiler-enforced single-caller guarantee (see
+above); `bridgedObservationEdges` correctness depends on the producer's own
+honest disclosure — the gate cannot independently verify it.
+
+**Git**: baseline unchanged at `8c477f298b864e9c3db23ce302c9b742cb4ca3e1`;
+not committed, not pushed; no file outside `core-discovery-engine`'s
+`trajectory` package (main and test) touched; the pre-existing uncommitted
+Phase 1/2A work (`BufferedObservation*`, `ClassifyDiscoveredCellsByGeographicAreas.kt`,
+`DiscoveredRoute.kt`, France admin GeoJSON resources,
+`AdministrativeAreaNavigation.kt`, `CalibrationDiagnostic*`,
+`ScreenStateCalibrationReceiver.kt`, `TrajectoryObservationCapture.kt`, etc.)
+remains completely untouched.
