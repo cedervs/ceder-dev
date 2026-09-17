@@ -130,8 +130,38 @@ fun computeGeographicBounds(multiPolygon: GeographicMultiPolygon): GeographicBou
     )
 }
 
-/** Maps any finite longitude onto its representative in `[-180, 180)`. */
-private fun normalizeLongitude(longitude: Double): Double {
+/**
+ * Cheap, antimeridian-safe bounding-box containment prefilter — **MINOR, scoped correction-round
+ * addition**: [ClassifyDiscoveredCellsByGeographicAreas] tests every candidate area's full polygon
+ * for every discovered cell; at this app's current scale (a handful of countries/regions/departments
+ * against a low-thousands cell count) that is not yet a real bottleneck, but a bounds check first is
+ * a strict, safe narrowing (never a source of a false negative/positive on its own) that costs far
+ * less than a full ray-cast, so it is applied there as a first-pass filter before the real
+ * [PointInPolygonClassifier] test. **Not** a general spatial index — a full worldwide rollout with
+ * many more, smaller candidate areas will likely need one (e.g. an R-tree or grid) instead of a
+ * linear per-area bounds scan; that remains explicitly future work, not attempted this round.
+ *
+ * [bounds] is already expressed in [computeGeographicBounds]'s own consistently-unwrapped frame
+ * (`northEastLongitude` may exceed `180°`, representing a box that crosses the antimeridian) — this
+ * re-expresses [point]'s own longitude in that same frame (anchored at [GeographicBounds.southWestLongitude],
+ * always already normalized into `[-180, 180)` by [computeGeographicBounds]'s own construction)
+ * before comparing, exactly the same "anchor once, compare in one consistent frame" principle
+ * [PointInPolygonClassifier] already uses for the same reason.
+ */
+fun GeographicBounds.contains(point: Coordinate): Boolean {
+    if (point.latitude < southWestLatitude || point.latitude > northEastLatitude) return false
+
+    val span = northEastLongitude - southWestLongitude // always >= 0 -- GeographicBounds' own invariant
+    var delta = normalizeLongitude(point.longitude) - southWestLongitude
+    if (delta < 0.0) delta += FULL_CIRCLE_DEGREES
+    return delta <= span
+}
+
+/** Maps any finite longitude onto its representative in `[-180, 180)`. Widened from `private` to
+ * `internal` so `InteriorPointFinder.kt` (same package) can reuse this exact normalization when
+ * re-expressing an antimeridian-safe bounds midpoint back into a valid [Coordinate] longitude —
+ * no behavior change to any existing caller. */
+internal fun normalizeLongitude(longitude: Double): Double {
     val normalized = (longitude + 180.0).mod(FULL_CIRCLE_DEGREES) - 180.0
     // Guards the exact boundary: (180.0).mod(360.0) == 0.0, so an input of exactly -180.0 would
     // otherwise map to -180.0 correctly, but floating point on inputs like 180.0 itself must land

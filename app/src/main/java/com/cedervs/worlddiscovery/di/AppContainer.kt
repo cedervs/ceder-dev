@@ -15,10 +15,13 @@ import com.cedervs.worlddiscovery.core.database.RoomDiscoveredCellRepository
 import com.cedervs.worlddiscovery.core.database.WorldDiscoveryDatabase
 import com.cedervs.worlddiscovery.core.discovery.ClassifyDiscoveredCellsByGeographicArea
 import com.cedervs.worlddiscovery.core.discovery.ClassifyDiscoveredCellsByGeographicAreaComponents
+import com.cedervs.worlddiscovery.core.discovery.ClassifyDiscoveredCellsByGeographicAreas
 import com.cedervs.worlddiscovery.core.discovery.DiscoveredCellRepository
 import com.cedervs.worlddiscovery.core.discovery.H3CellConverter
+import com.cedervs.worlddiscovery.core.discovery.H3GridTraversal
 import com.cedervs.worlddiscovery.core.discovery.ObserveMapReadState
 import com.cedervs.worlddiscovery.core.discovery.SubmitDiscoveryObservation
+import com.cedervs.worlddiscovery.core.discovery.loadFranceAdministrativeAreas
 import com.cedervs.worlddiscovery.core.discovery.loadFranceGeographicAreaReference
 import com.cedervs.worlddiscovery.core.location.AndroidBackgroundLocationDiagnosticLogger
 import com.cedervs.worlddiscovery.core.location.AndroidLocationDiagnosticLogger
@@ -80,6 +83,12 @@ class AppContainer(context: Context) {
     private val h3CellConverter: H3CellConverter = AndroidH3CellConverter()
     private val submitDiscoveryObservation = SubmitDiscoveryObservation(h3CellConverter, discoveredCellRepository)
 
+    // Unconditional (unlike the debug-only AndroidH3GridTraversal instance below, constructed only
+    // for ForegroundTransitionDiagnostics) -- the derived first-discovery corridor's own structural-
+    // continuity check (see DiscoveredRoute.kt's deriveRouteSegments) needs real H3 grid-adjacency
+    // evidence in every build, not just debug.
+    private val routeGridTraversal: H3GridTraversal = AndroidH3GridTraversal()
+
     // Map feature's single read-side entry point — mirrors submitDiscoveryObservation on the
     // write side. Read-only: never mutates discovery history. One discoveredCellRepository
     // subscription feeds both the fine (resolution-12) geometries and the France Country-level
@@ -95,12 +104,22 @@ class AppContainer(context: Context) {
     // tools/geo/README.md for its real source/license/generation steps — loaded once and reused
     // for the lifetime of the process; it is never persisted or treated as discovery truth.
     private val franceGeographicAreaReference = loadFranceGeographicAreaReference()
+
+    // Country -> Region -> Department: a second, small, checked-in, versioned geographic artifact
+    // set (13 metropolitan regions + Nouvelle-Aquitaine's 12 departments this round -- see
+    // FranceAdministrativeAreas.kt's own doc comment for the exact, documented data-population
+    // scope), loaded once and reused for the lifetime of the process, exactly like
+    // franceGeographicAreaReference above -- never persisted, never treated as discovery truth.
+    private val franceAdministrativeAreas = loadFranceAdministrativeAreas(franceGeographicAreaReference)
     val observeMapReadState = ObserveMapReadState(
         discoveredCellRepository,
         h3CellConverter,
         ClassifyDiscoveredCellsByGeographicArea(h3CellConverter),
         ClassifyDiscoveredCellsByGeographicAreaComponents(h3CellConverter),
+        ClassifyDiscoveredCellsByGeographicAreas(h3CellConverter),
         franceGeographicAreaReference,
+        franceAdministrativeAreas,
+        routeGridTraversal,
     )
 
     private val locationProvider: LocationProvider = FusedLocationProvider(context)

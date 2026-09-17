@@ -1,5 +1,6 @@
 package com.cedervs.worlddiscovery.feature.map
 
+import com.cedervs.worlddiscovery.core.discovery.GeographicAreaType
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -10,50 +11,70 @@ class MapNavigationStateResetterTest {
 
     private val someCamera = MapCameraState(latitude = 48.0, longitude = 2.0, zoom = 5.0, bearing = 0.0, tilt = 0.0)
     private val someOtherCamera = MapCameraState(latitude = 41.9, longitude = 8.7, zoom = 9.0, bearing = 0.0, tilt = 0.0)
+    private val someAdminStack = listOf(AdminFocusFrame(someOtherCamera, GeographicAreaType.ADMIN_1, "admin1:FR-NAQ"))
 
     @Before
     fun setUp() {
         MapCameraStateHolder.current = null
         CountryFocusStateHolder.current = null
+        AdministrativeFocusStateHolder.current = emptyList()
     }
 
     @After
     fun tearDown() {
         MapCameraStateHolder.current = null
         CountryFocusStateHolder.current = null
+        AdministrativeFocusStateHolder.current = emptyList()
     }
 
     @Test
-    fun `reset clears both the camera and the focus state when both are present`() {
+    fun `reset clears the camera, the Country focus state and the admin focus stack when all are present`() {
         MapCameraStateHolder.current = someCamera
         CountryFocusStateHolder.current = someOtherCamera
+        AdministrativeFocusStateHolder.current = someAdminStack
 
         MapNavigationStateResetter.reset()
 
         assertNull(MapCameraStateHolder.current)
         assertNull(CountryFocusStateHolder.current)
+        assertEquals(emptyList<AdminFocusFrame>(), AdministrativeFocusStateHolder.current)
     }
 
     @Test
-    fun `reset clears the camera even when focus state was already empty`() {
+    fun `reset clears the camera even when both focus states were already empty`() {
         MapCameraStateHolder.current = someCamera
         CountryFocusStateHolder.current = null
+        AdministrativeFocusStateHolder.current = emptyList()
 
         MapNavigationStateResetter.reset()
 
         assertNull(MapCameraStateHolder.current)
         assertNull(CountryFocusStateHolder.current)
+        assertEquals(emptyList<AdminFocusFrame>(), AdministrativeFocusStateHolder.current)
     }
 
     @Test
-    fun `reset clears the focus state even when the camera was already empty`() {
+    fun `reset clears the Country and admin focus states even when the camera was already empty`() {
         MapCameraStateHolder.current = null
         CountryFocusStateHolder.current = someOtherCamera
+        AdministrativeFocusStateHolder.current = someAdminStack
 
         MapNavigationStateResetter.reset()
 
         assertNull(MapCameraStateHolder.current)
         assertNull(CountryFocusStateHolder.current)
+        assertEquals(emptyList<AdminFocusFrame>(), AdministrativeFocusStateHolder.current)
+    }
+
+    @Test
+    fun `reset clears a lingering admin focus stack even when Country focus was already empty`() {
+        MapCameraStateHolder.current = null
+        CountryFocusStateHolder.current = null
+        AdministrativeFocusStateHolder.current = someAdminStack
+
+        MapNavigationStateResetter.reset()
+
+        assertEquals(emptyList<AdminFocusFrame>(), AdministrativeFocusStateHolder.current)
     }
 
     @Test

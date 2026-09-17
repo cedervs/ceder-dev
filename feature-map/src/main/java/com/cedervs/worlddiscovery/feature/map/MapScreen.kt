@@ -43,6 +43,9 @@ private val EMPTY_MAP_READ_STATE = MapReadState(
     geometries = emptyList<DiscoveredCellGeometry>(),
     franceVisitedStatus = GeographicAreaVisitedStatus.franceNotVisitedPlaceholder,
     franceComponents = emptyList(),
+    franceAdmin1Statuses = emptyList(),
+    franceAdmin2Statuses = emptyList(),
+    routeSegments = emptyList(),
 )
 
 @Composable
@@ -68,6 +71,19 @@ fun MapScreen(
     val visitedFranceComponents = readState.franceComponents
         .filter { componentStatus -> componentStatus.visited }
         .map { componentStatus -> componentStatus.component }
+    // Country -> Region -> Department: same "only ever pass the already-visited subset through to
+    // rendering/navigation" rule as visitedFranceComponents above -- see
+    // AdministrativeOverlayRendering.kt's own doc comment.
+    val visitedAdmin1Areas = readState.franceAdmin1Statuses
+        .filter { status -> status.visited }
+        .map { status -> status.area }
+    val visitedAdmin2Areas = readState.franceAdmin2Statuses
+        .filter { status -> status.visited }
+        .map { status -> status.area }
+    // Globally-derived (not yet Department-clipped) route segments -- see DiscoveredRoute.kt's own
+    // doc comment. DiscoveryMapView itself performs the Department-scoped clipping, since it's the
+    // one place that already knows the current geographic-focus selection.
+    val routeSegments = readState.routeSegments
     val currentPosition by currentLocationObservation.collectAsState(initial = null)
 
     var isBusy by remember { mutableStateOf(false) }
@@ -116,6 +132,9 @@ fun MapScreen(
                 geometries = geometries,
                 franceAreaId = franceAreaId,
                 visitedFranceComponents = visitedFranceComponents,
+                visitedAdmin1Areas = visitedAdmin1Areas,
+                visitedAdmin2Areas = visitedAdmin2Areas,
+                routeSegments = routeSegments,
                 currentPosition = currentPosition,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )

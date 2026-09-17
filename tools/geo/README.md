@@ -242,14 +242,127 @@ record's licensing analysis for the full reasoning — commercial use itself is 
    `CountryOverlayRenderingTest`) to confirm the regenerated artifact still parses and behaves as
    expected.
 
+## France Region (`ADMIN_1`)/Department (`ADMIN_2`) reference data — Country → Region → Department hierarchy
+
+**A third, deliberately separate artifact set — extends, never replaces, anything above.**
+`core-discovery-engine/src/main/resources/geo/france/regions/*.json` (13 files, all metropolitan
+regions) and `.../departments/*.json` (12 files, Nouvelle-Aquitaine only this round) are ordinary
+[`GeographicAreaReferenceJson`] artifacts, same schema `france-reference.json` uses (extended this
+round with an optional `parentId` field — see `GeographicAreaReference.kt`), just with
+`type: "ADMIN_1"`/`"ADMIN_2"` and a real `parentId` (a region's is `"country:FR"`; a department's is
+its own region's id, e.g. `"admin1:FR-NAQ"`). This is classification geometry (H3 point-in-polygon
+membership), matching `france-reference.json`'s own role — not rendering geometry; no Region/
+Department equivalent of `france-mainland-osm-render.json` exists this round.
+
+### Source
+
+Every region/department polygon is a real OSM administrative boundary relation, fetched the same
+way `france-mainland-osm-render.json` already was:
+
+```
+https://polygons.openstreetmap.fr/get_geojson.py?id=<relation>&params=0
+```
+
+Retrieved: 2026-09-02. License: OpenStreetMap contributors, ODbL v1.0 — attribution required; same
+Derivative Database share-alike obligation as `france-mainland-osm-render.json`'s own entry above
+(if bundled in a released build, the extracted/processed polygon must be made available under ODbL
+to whoever requests it — commercial use itself is not restricted).
+
+Each relation ID was found via a structured Nominatim query (`state=<name>&country=France` for
+regions, `county=<name>&state=Nouvelle-Aquitaine&country=France` for departments) and independently
+confirmed against the OSM relation's own `ISO3166-2` (regions) or `ref:INSEE` (departments) tag via
+`api.openstreetmap.org/api/0.6/relation/<id>.json` — never assumed from the query match alone.
+
+| Region | `id` | ISO 3166-2 | OSM relation |
+| --- | --- | --- | --- |
+| Île-de-France | `admin1:FR-IDF` | FR-IDF | 8649 |
+| Centre-Val de Loire | `admin1:FR-CVL` | FR-CVL | 8640 |
+| Bourgogne-Franche-Comté | `admin1:FR-BFC` | FR-BFC | 3792878 |
+| Normandie | `admin1:FR-NOR` | FR-NOR | 3793170 |
+| Hauts-de-France | `admin1:FR-HDF` | FR-HDF | 4217435 |
+| Grand Est | `admin1:FR-GES` | FR-GES | 3792876 |
+| Pays de la Loire | `admin1:FR-PDL` | FR-PDL | 8650 |
+| Bretagne | `admin1:FR-BRE` | FR-BRE | 102740 |
+| Nouvelle-Aquitaine | `admin1:FR-NAQ` | FR-NAQ | 3792880 |
+| Occitanie | `admin1:FR-OCC` | FR-OCC | 3792883 |
+| Auvergne-Rhône-Alpes | `admin1:FR-ARA` | FR-ARA | 3792877 |
+| Provence-Alpes-Côte d'Azur | `admin1:FR-PAC` | FR-PAC | 8654 |
+| Corse | `admin1:FR-20R` | FR-20R (collectivité territoriale unique) | 76910 |
+
+Nouvelle-Aquitaine's 12 departments (all `parentId: "admin1:FR-NAQ"`):
+
+| Department | `id` | INSEE | OSM relation |
+| --- | --- | --- | --- |
+| Charente | `admin2:FR-16` | 16 | 7428 |
+| Charente-Maritime | `admin2:FR-17` | 17 | 7431 |
+| Corrèze | `admin2:FR-19` | 19 | 7464 |
+| Creuse | `admin2:FR-23` | 23 | 7459 |
+| Dordogne | `admin2:FR-24` | 24 | 7375 |
+| Gironde | `admin2:FR-33` | 33 | 7405 |
+| Landes | `admin2:FR-40` | 40 | 7376 |
+| Lot-et-Garonne | `admin2:FR-47` | 47 | 1284995 |
+| Pyrénées-Atlantiques | `admin2:FR-64` | 64 | 7450 |
+| Deux-Sèvres | `admin2:FR-79` | 79 | 7455 |
+| Vienne | `admin2:FR-86` | 86 | 7377 |
+| Haute-Vienne | `admin2:FR-87` | 87 | 7418 |
+
+### Why only Nouvelle-Aquitaine's departments this round
+
+A deliberate, documented **data-population** scoping decision, not an architecture limit — see
+`FranceAdministrativeAreas.kt`'s own doc comment. `ClassifyDiscoveredCellsByGeographicAreas` and the
+Region/Department rendering/navigation code are already fully generic over however many
+`GeographicArea`s are loaded; populating the remaining 12 regions' departments is a mechanical
+follow-up (fetch more relations, run the generator, add the resource paths) requiring no code change.
+French overseas regions/departments (Guadeloupe, Martinique, Guyane, La Réunion, Mayotte) are not
+included at all this round.
+
+### No noise filtering the way `GenerateFranceReference.kt` needs — but a real, different
+post-simplification collapse to guard against
+
+Unlike `GUF`'s raster-derived source, a `polygons.openstreetmap.fr` relation is real, human-maintained
+cartography — `GenerateFranceAdministrativeReference.kt` does not apply `GenerateFranceReference.kt`'s
+aggressive `50 km²` noise threshold (that would delete real small islands, e.g. Bretagne's own coastal
+islands). It applies only a tiny `MIN_STRUCTURAL_NOISE_AREA_KM2 = 0.001 km²` pre-filter for genuine
+degenerate multipolygon-assembly artifacts, **and** a post-simplification check: a real but very small
+component (a skerry/rock smaller than the `0.001°` Douglas-Peucker tolerance, ~111m) can legitimately
+collapse to a degenerate 2-identical-point "ring" purely from simplification, regardless of its real
+area — the generator drops any component whose simplified outer ring has fewer than 3 distinct points
+and reports how many were dropped this way, rather than either crashing or writing a corrupt artifact.
+
+### Regenerating a region or department artifact
+
+```bash
+kotlinc -cp "<core-discovery-engine-classes>;<kotlinx-serialization-core-jvm.jar>;<kotlinx-serialization-json-jvm.jar>" \
+  -Xplugin=<kotlin-serialization-compiler-plugin-embeddable.jar matching your kotlinc version> \
+  -Xfriend-paths=<core-discovery-engine-classes> \
+  -d out tools/geo/GenerateFranceAdministrativeReference.kt
+
+java -cp "out;<core-discovery-engine-classes>;<kotlinx-serialization-*.jar>;<kotlin-stdlib.jar>" \
+  GenerateFranceAdministrativeReferenceKt <path-to-osm-relation.geojson> <id> <ADMIN_1|ADMIN_2> \
+  <displayName> <parentId> <sourceVersionNote> <output-path>
+```
+
+Re-run `FranceAdministrativeHierarchyTest`/`ClassifyDiscoveredCellsByGeographicAreasTest`
+(`core-discovery-engine`) and `AdministrativeAreaNavigationTest`/`AdministrativeOverlayRenderingTest`
+(`feature-map`) afterward — several of `FranceAdministrativeHierarchyTest`'s own assertions are
+pinned to real coordinates against this exact data and must be re-verified, not blindly re-approved,
+against any future regeneration.
+
 ## Future sources — not implemented, not decided here
 
 `geoBoundaries` gbOpen ADM0 is now used for France's Country-level boundary specifically — this
-does **not** itself decide the worldwide/subdivision strategy. Per the current architecture
-direction (see the conversation/design-review record, not yet transcribed into `/docs`):
-administrative subdivisions (region/department-equivalent) are expected to evaluate Overture Maps'
-Divisions dataset first, with OpenStreetMap as a local/detail/gap-filling source — none of this is
-implemented yet, and no provider below Country level is locked in. A real, evidence-based licensing
+does **not** itself decide the worldwide/subdivision strategy. Per the prior architecture direction
+(see the conversation/design-review record, not yet transcribed into `/docs`): administrative
+subdivisions (region/department-equivalent) were expected to evaluate Overture Maps' Divisions
+dataset first, with OpenStreetMap as a local/detail/gap-filling source. **This round's actual France
+Region/Department data used OpenStreetMap directly instead** (via `polygons.openstreetmap.fr`, the
+same proven mechanism `france-mainland-osm-render.json` already used) — an ENGINEERING DESIGN
+REQUIRED call made for this round specifically because Overture's Divisions dataset ships as
+large geoparquet files with no simple single-relation HTTP-fetch equivalent to what this toolchain
+already had working, not because Overture was evaluated and rejected on its merits. Overture Divisions
+remains a real, undecided candidate for a future worldwide-generalization round, alongside evaluating
+whether OSM alone (this round's approach) scales acceptably beyond a hand-picked single-country,
+single-region case. No provider below Country level is locked in worldwide. A real, evidence-based licensing
 concern (ODbL share-alike) was found for *other* countries' `geoBoundaries` gbOpen entries (e.g.
 Luxembourg, Indonesia) during the broader spike — not relevant to `FRA`/`GUF` (both CC-family,
 no share-alike obligation), but must be resolved with a real legal review before `geoBoundaries` is

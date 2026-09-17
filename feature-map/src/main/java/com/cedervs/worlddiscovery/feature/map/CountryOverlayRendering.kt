@@ -2,6 +2,7 @@ package com.cedervs.worlddiscovery.feature.map
 
 import android.graphics.Color
 import com.cedervs.worlddiscovery.core.discovery.GeographicAreaComponent
+import com.cedervs.worlddiscovery.core.discovery.GeographicAreaType
 import com.cedervs.worlddiscovery.core.discovery.GeographicPolygon
 import com.google.gson.JsonObject
 import org.maplibre.android.maps.Style
@@ -57,12 +58,12 @@ internal const val COUNTRY_OVERLAY_MAX_ZOOM = 7f
 internal const val COUNTRY_OVERLAY_FADE_OUT_START_ZOOM = 5.0
 internal const val COUNTRY_OVERLAY_FADE_OUT_END_ZOOM = 7.0
 
-// Provisional experimental color — not final art direction. Deliberately subtle (low opacity, no
-// heavy fill) per this round's explicit instruction: this is a VISITED state, not an exploration-
-// coverage claim, and must not look like "100% explored".
-internal const val COUNTRY_OVERLAY_VISITED_FILL_COLOR = "#FF8C00"
-private const val COUNTRY_OVERLAY_FILL_OPACITY = 0.18f
-private const val COUNTRY_OVERLAY_OUTLINE_OPACITY = 0.55f
+// Physical-validation correction round: fill/outline color is no longer a fixed per-level constant —
+// see GeographicHierarchyStyling.kt's own doc comment. What used to be COUNTRY_OVERLAY_VISITED_FILL_COLOR
+// is now GeographicAreaStyleRole.SELECTED/DIRECT_SUBLEVEL/ANCESTOR_CONTEXT's own fillColorHex(),
+// resolved per-feature from the current selection. Opacity is still a single, level-independent
+// constant (shared with AdministrativeOverlayRendering.kt via GEOGRAPHIC_OVERLAY_FILL_OPACITY) — only
+// COLOR varies by selection role, not opacity.
 private const val COUNTRY_OVERLAY_OUTLINE_WIDTH = 1.5f
 
 /**
@@ -96,12 +97,16 @@ private const val COUNTRY_OVERLAY_OUTLINE_WIDTH = 1.5f
  * an opacity zoom `Expression`) — this function itself is only ever called when the underlying
  * visited-status data changes (see `DiscoveryMapView`'s effect), never on a camera-only zoom/pan.
  */
-internal fun applyCountryOverlay(style: Style, visitedComponents: List<GeographicAreaComponent>) {
+internal fun applyCountryOverlay(
+    style: Style,
+    visitedComponents: List<GeographicAreaComponent>,
+    selection: GeographicFocusSelection = GeographicFocusSelection.NONE,
+) {
     // PHYSICAL PROTOTYPE, Option F/G3 -- mainland's rendered shape now comes from the OSM-derived
     // rendering polygon (validated against real basemap tiles, see mainlandFranceRenderingPolygon's
     // own doc comment), not geoBoundaries. Corsica/French Guiana and visited-status itself are
     // entirely unaffected -- see countryOverlayFeatureCollection's doc comment.
-    val featureCollection = countryOverlayFeatureCollection(visitedComponents, mainlandFranceRenderingPolygon)
+    val featureCollection = countryOverlayFeatureCollection(visitedComponents, mainlandFranceRenderingPolygon, selection)
 
     val existingSource = style.getSourceAs<GeoJsonSource>(COUNTRY_OVERLAY_SOURCE_ID)
     if (existingSource != null) {
@@ -176,8 +181,11 @@ private fun addCountryOverlayFillLayer(style: Style) {
 private fun countryOverlayFillLayer(): FillLayer =
     FillLayer(COUNTRY_OVERLAY_FILL_LAYER_ID, COUNTRY_OVERLAY_SOURCE_ID)
         .withProperties(
-            PropertyFactory.fillColor(Color.parseColor(COUNTRY_OVERLAY_VISITED_FILL_COLOR)),
-            PropertyFactory.fillOpacity(fadeOutOpacityExpression(COUNTRY_OVERLAY_FILL_OPACITY)),
+            // Selection-relative role color (see GeographicHierarchyStyling.kt), never a fixed
+            // per-level constant -- re-coloring on a focus change only ever needs a fresh
+            // FeatureCollection with updated styleRole tags, never touching this paint property again.
+            PropertyFactory.fillColor(geographicAreaStyleRoleColorExpression()),
+            PropertyFactory.fillOpacity(fadeOutOpacityExpression(GEOGRAPHIC_OVERLAY_FILL_OPACITY)),
         )
         .apply {
             minZoom = COUNTRY_OVERLAY_MIN_ZOOM
@@ -187,9 +195,9 @@ private fun countryOverlayFillLayer(): FillLayer =
 private fun countryOverlayOutlineLayer(): LineLayer =
     LineLayer(COUNTRY_OVERLAY_OUTLINE_LAYER_ID, COUNTRY_OVERLAY_SOURCE_ID)
         .withProperties(
-            PropertyFactory.lineColor(Color.parseColor(COUNTRY_OVERLAY_VISITED_FILL_COLOR)),
+            PropertyFactory.lineColor(geographicAreaStyleRoleColorExpression()),
             PropertyFactory.lineWidth(COUNTRY_OVERLAY_OUTLINE_WIDTH),
-            PropertyFactory.lineOpacity(fadeOutOpacityExpression(COUNTRY_OVERLAY_OUTLINE_OPACITY)),
+            PropertyFactory.lineOpacity(fadeOutOpacityExpression(GEOGRAPHIC_OVERLAY_OUTLINE_OPACITY)),
         )
         .withFilter(mainlandFranceOutlineSuppressionFilter())
         .apply {
@@ -241,10 +249,11 @@ private fun fadeOutOpacityExpression(baseOpacity: Float) =
 internal fun countryOverlayFeatureCollection(
     visitedComponents: List<GeographicAreaComponent>,
     mainlandRenderingPolygon: GeographicPolygon? = null,
+    selection: GeographicFocusSelection = GeographicFocusSelection.NONE,
 ): FeatureCollection {
     val features = visitedComponents.map { component ->
         val renderOverride = if (component.componentIndex == MAINLAND_FRANCE_COMPONENT_INDEX_PROTOTYPE) mainlandRenderingPolygon else null
-        component.toCountryOverlayFeature(renderOverride)
+        component.toCountryOverlayFeature(renderOverride, selection)
     }
     return FeatureCollection.fromFeatures(features.toTypedArray())
 }
@@ -252,13 +261,21 @@ internal fun countryOverlayFeatureCollection(
 /** Renders [renderPolygonOverride] in place of this component's own classification [polygon] when
  * supplied — the `areaId`/`componentIndex` tagged properties always come from the real classification
  * component regardless, so click resolution ([resolveClickedCountryComponent]) is entirely
- * unaffected by which shape actually got drawn. */
-internal fun GeographicAreaComponent.toCountryOverlayFeature(renderPolygonOverride: GeographicPolygon? = null): Feature {
+ * unaffected by which shape actually got drawn. [selection] drives only the tagged
+ * [GEOGRAPHIC_STYLE_ROLE_PROPERTY] (see `GeographicHierarchyStyling.kt`) — a Country `GeographicArea`
+ * always has a `null` `parentId` (enforced by `validateGeographicAreaHierarchy`), so every component
+ * of the same Country area always resolves to the exact same role together, never per-island. */
+internal fun GeographicAreaComponent.toCountryOverlayFeature(
+    renderPolygonOverride: GeographicPolygon? = null,
+    selection: GeographicFocusSelection = GeographicFocusSelection.NONE,
+): Feature {
     val renderPolygon = renderPolygonOverride ?: polygon
     val geoJsonPolygon = renderPolygon.toMapLibrePolygon()
+    val styleRole = resolveGeographicAreaStyleRole(GeographicAreaType.COUNTRY, area.id, area.parentId, selection)
     val properties = JsonObject().apply {
         addProperty(COUNTRY_OVERLAY_AREA_ID_PROPERTY, area.id)
         addProperty(COUNTRY_OVERLAY_COMPONENT_INDEX_PROPERTY, componentIndex)
+        addProperty(GEOGRAPHIC_STYLE_ROLE_PROPERTY, styleRole.name)
     }
     return Feature.fromGeometry(geoJsonPolygon, properties)
 }
@@ -271,7 +288,10 @@ internal fun GeographicAreaComponent.toCountryOverlayFeature(renderPolygonOverri
  * `CountryOverlayComponentNavigation.kt`'s `resolveClickedCountryComponent`. */
 internal fun isCountryOverlayInteractive(zoomLevel: Double): Boolean = zoomLevel < COUNTRY_OVERLAY_FADE_OUT_END_ZOOM
 
-private fun GeographicPolygon.toMapLibrePolygon(): Polygon {
+/** Widened from `private` to `internal` so `AdministrativeOverlayRendering.kt` (same package) can
+ * reuse the exact same antimeridian-safe polygon conversion for Region/Department rendering rather
+ * than duplicating it — no behavior change to any existing caller. */
+internal fun GeographicPolygon.toMapLibrePolygon(): Polygon {
     val closedRings = rings.map { ring ->
         val rawPoints = ring.map { coordinate -> Point.fromLngLat(coordinate.longitude, coordinate.latitude) }
         // Reuses the same antimeridian-unwrap technique already established for fine H3 cell

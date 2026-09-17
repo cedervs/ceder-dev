@@ -1,12 +1,13 @@
 package com.cedervs.worlddiscovery.feature.map
 
 /**
- * The single reset contract for **all** in-memory map-navigation process state: both
- * [MapCameraStateHolder]'s last saved camera and [CountryFocusStateHolder]'s active-focus/return
- * camera. These two must always be cleared **together**, never independently — a real
- * authentication/session transition (logout, a different login, an account/session replacement)
- * must never let a new session inherit a previous one's camera position, an active
- * component-focus, or the ability to Back out of it.
+ * The single reset contract for **all** in-memory map-navigation process state:
+ * [MapCameraStateHolder]'s last saved camera, [CountryFocusStateHolder]'s active-focus/return
+ * camera, and (added this round) [AdministrativeFocusStateHolder]'s Region/Department focus stack.
+ * These must always be cleared **together**, never independently — a real authentication/session
+ * transition (logout, a different login, an account/session replacement) must never let a new
+ * session inherit a previous one's camera position, an active Country/Region/Department focus, or
+ * the ability to Back out of it.
  *
  * **Not public API for casual use.** This is deliberately called from exactly one place — the
  * real auth/session hook (see `AppContainer`'s `init` block, which observes
@@ -17,9 +18,9 @@ package com.cedervs.worlddiscovery.feature.map
  * in the first place) — none of those are session transitions, and none of them should ever reach
  * this function.
  *
- * Deliberately just these two fields, nothing more: no navigation stack, no persistence, and no
- * coupling to geographic reference data (the France reference artifact is loaded once per process
- * and is not session-scoped — a session change never needs to reload or reclassify it).
+ * Deliberately just these three fields, nothing more: no persistence, and no coupling to geographic
+ * reference data (the France Country/Region/Department reference artifacts are loaded once per
+ * process and are not session-scoped — a session change never needs to reload or reclassify them).
  *
  * Public (not `internal`): the real auth/session hook lives in `:app`'s `AppContainer` — a
  * separate Gradle module from `:feature-map` — so this needs to be visible across that module
@@ -30,5 +31,6 @@ object MapNavigationStateResetter {
     fun reset() {
         MapCameraStateHolder.current = null
         CountryFocusStateHolder.current = null
+        AdministrativeFocusStateHolder.current = emptyList()
     }
 }

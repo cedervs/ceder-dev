@@ -1,7 +1,9 @@
 package com.cedervs.worlddiscovery.core.discovery
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GeographicGeometryTest {
@@ -150,5 +152,65 @@ class GeographicGeometryTest {
                 northEastLongitude = 1.0,
             )
         }
+    }
+
+    // ==========================================================================================
+    // GeographicBounds.contains -- the MINOR-scope classification prefilter added this correction
+    // round (see ClassifyDiscoveredCellsByGeographicAreas' own doc comment).
+    // ==========================================================================================
+
+    private val ordinaryBounds = GeographicBounds(
+        southWestLatitude = 44.0,
+        southWestLongitude = -1.0,
+        northEastLatitude = 46.0,
+        northEastLongitude = 1.0,
+    )
+
+    @Test
+    fun `contains is true for a point well inside an ordinary, non-wrapping box`() {
+        assertTrue(ordinaryBounds.contains(Coordinate(latitude = 45.0, longitude = 0.0)))
+    }
+
+    @Test
+    fun `contains is false for a point outside an ordinary box's latitude range`() {
+        assertFalse(ordinaryBounds.contains(Coordinate(latitude = 50.0, longitude = 0.0)))
+    }
+
+    @Test
+    fun `contains is false for a point outside an ordinary box's longitude range`() {
+        assertFalse(ordinaryBounds.contains(Coordinate(latitude = 45.0, longitude = 10.0)))
+    }
+
+    @Test
+    fun `contains is true exactly on a box's own edge`() {
+        assertTrue(ordinaryBounds.contains(Coordinate(latitude = 44.0, longitude = -1.0)))
+        assertTrue(ordinaryBounds.contains(Coordinate(latitude = 46.0, longitude = 1.0)))
+    }
+
+    @Test
+    fun `contains is antimeridian-safe for a box that wraps past 180 degrees`() {
+        // West=170, East=190 (wrapped) represents a box spanning [170, 180] U [-180, -170).
+        val wrappingBounds = GeographicBounds(
+            southWestLatitude = -10.0,
+            southWestLongitude = 170.0,
+            northEastLatitude = 10.0,
+            northEastLongitude = 190.0,
+        )
+
+        assertTrue("raw longitude -175 is inside the wrapped box (equivalent to 185)", wrappingBounds.contains(Coordinate(0.0, -175.0)))
+        assertTrue(wrappingBounds.contains(Coordinate(0.0, 175.0)))
+        assertFalse("raw longitude 150 is well outside the wrapped box", wrappingBounds.contains(Coordinate(0.0, 150.0)))
+        assertFalse(wrappingBounds.contains(Coordinate(0.0, -150.0)))
+    }
+
+    @Test
+    fun `contains never produces a false negative for the real France bounds at a real contained point`() {
+        // France's own real bounds span mainland Europe to French Guiana (see
+        // GeographicAreaReferenceTest) -- a real point solidly within mainland France must still
+        // pass the prefilter, proving it is a safe narrowing, never a source of a missed real match.
+        val france = loadFranceGeographicAreaReference()
+        val parisCenter = Coordinate(latitude = 48.8566, longitude = 2.3522)
+
+        assertTrue(france.bounds.contains(parisCenter))
     }
 }

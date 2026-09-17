@@ -24,7 +24,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.LifecycleEventObserver
 import com.cedervs.worlddiscovery.core.discovery.DiscoveredCellGeometry
+import com.cedervs.worlddiscovery.core.discovery.GeographicArea
 import com.cedervs.worlddiscovery.core.discovery.GeographicAreaComponent
+import com.cedervs.worlddiscovery.core.discovery.GeographicAreaType
+import com.cedervs.worlddiscovery.core.discovery.RouteSegment
+import com.cedervs.worlddiscovery.core.discovery.clipRouteSegmentsToArea
 import com.cedervs.worlddiscovery.core.location.LocationObservation
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -106,13 +110,15 @@ private const val DEV_ONLY_DEMO_STYLE_URL = "https://tiles.openfreemap.org/style
  *
  * ## Country overlay — component-level highlighting, click, camera fit, and back/up restoration
  * [visitedFranceComponents] ("exactly the France components that are themselves actually visited" —
- * empty when none are) is rendered by its own `LaunchedEffect` below, keyed only on the map/style
- * being ready and the visited-components data itself changing — **never** on camera/zoom, matching
- * the `geometries` effect's own principle. Highlighting follows real per-component presence: one
- * discovery in metropolitan France colors only metropolitan France, never Corsica or French Guiana
- * just because they share the same parent country — see `CountryOverlayRendering.kt`'s
- * `applyCountryOverlay` doc comment for the full rationale and its `PRODUCT CALIBRATION REQUIRED`
- * provisional zoom range.
+ * empty when none are) is rendered by its own `LaunchedEffect` below, keyed on the map/style being
+ * ready, the visited-components data changing, AND the current geographic focus/selection changing
+ * (physical-validation correction round: fill/outline color is now selection-relative, see
+ * `GeographicHierarchyStyling.kt`, so a focus change alone — no new discovery — must still re-color)
+ * — **never** on raw camera/zoom, matching the `geometries` effect's own principle. Highlighting
+ * follows real per-component presence: one discovery in metropolitan France colors only metropolitan
+ * France, never Corsica or French Guiana just because they share the same parent country — see
+ * `CountryOverlayRendering.kt`'s `applyCountryOverlay` doc comment for the full rationale and its
+ * `PRODUCT CALIBRATION REQUIRED` provisional zoom range.
  *
  * **Navigation follows the clicked geographic *component*, never the whole area.** France's real
  * geometry is three spatially separate pieces (metropolitan France, Corsica, French Guiana); tapping
@@ -131,12 +137,26 @@ private const val DEV_ONLY_DEMO_STYLE_URL = "https://tiles.openfreemap.org/style
  * click closure uses [rememberUpdatedState] so it always sees the *current* [visitedFranceComponents]/
  * [franceAreaId] regardless of when it was registered.
  *
- * On a resolved component hit: [nextCountryFocusReturnCamera] decides the return camera — the
- * *first* pre-focus camera is preserved across repeated taps on different components, never
- * overwritten by a later tap while focus is already active. The camera then animates to fit *that
- * component's own* bounds ([GeographicAreaComponent.bounds], antimeridian-safe — see
- * `computeGeographicBounds`), with padding. This is a **one-time** navigation action per tap —
- * nothing here re-fits on every recomposition or every `visitedFranceComponents` data change.
+ * On any resolved hit (Country component, Region, or Department): [nextGeographicSelectionOutcome]
+ * (see `AdministrativeAreaNavigation.kt`'s own doc comment) is the single pure decision the click
+ * handler applies — it decides the return camera (via [nextCountryFocusReturnCamera]: the *first*
+ * pre-focus camera is preserved across repeated taps, never overwritten by a later tap while focus is
+ * already active), the next Region/Department focus stack, and the camera target bounds, all at once.
+ * The camera then animates to fit *that resolved area/component's own* bounds
+ * ([GeographicAreaComponent.bounds]/[com.cedervs.worlddiscovery.core.discovery.GeographicArea.bounds],
+ * antimeridian-safe — see `computeGeographicBounds`), with padding — **unconditionally, every time**,
+ * regardless of any manual pan/zoom that preceded the tap (physical-validation fix: previously a
+ * genuinely resolved click could still leave the camera on France after drilling into a Department and
+ * zooming out; the camera-fit call itself was always unconditional, so the actual bug was
+ * [eligibleClickLevels] not allowing an ancestor to resolve at all from deep focus — now fixed). This
+ * is a **one-time** navigation action per tap — nothing here re-fits on every recomposition or every
+ * `visitedFranceComponents` data change.
+ *
+ * **Selecting an ancestor clears descendant focus.** A resolved [GeographicClickResolution.CountryComponent]
+ * always clears [adminFocusStack] to `emptyList()` via [nextGeographicSelectionOutcome] — selecting
+ * Country can never leave a stale Region/Department frame behind. Selecting a Region always collapses
+ * to a single Region frame ([nextAdminFocusStack]'s own already-validated behavior), which already
+ * discards any Department frame from the previous Region's subtree.
  *
  * **Focus state survives [MapView] recreation and tab-leave/return, deliberately.** [countryFocusReturnCamera]
  * is composition-local (`remember`, reset on a genuine recreation like every other local `remember`
@@ -159,6 +179,60 @@ private const val DEV_ONLY_DEMO_STYLE_URL = "https://tiles.openfreemap.org/style
  * between the geoBoundaries-derived orange border and the basemap's own OpenStreetMap-derived one.
  * Applied from the same effect as [applyCountryOverlay] below, never a separate subscription.
  *
+ * ## Region/Department focus — additive, on top of Country focus, never merged into it
+ * [visitedAdmin1Areas]/[visitedAdmin2Areas] extend the same "click the visited overlay, fit its
+ * bounds, remember how to get back" idea one and two levels below Country — see
+ * `AdministrativeOverlayRendering.kt`/`AdministrativeAreaNavigation.kt`/
+ * `AdministrativeFocusStateHolder.kt`.
+ *
+ * **Click resolution is hierarchy-aware AND parent-scoped, not priority-ordered and not geographic-
+ * overlap-only.** [currentGeographicFocusLevel] reads whichever level is currently focused (or
+ * `null`, none) and [resolveGeographicClick] (delegating to `AdministrativeAreaNavigation.kt`'s
+ * [eligibleClickLevels]) only ever attempts the level(s) actually eligible from there — see that
+ * function's own doc comment for the exact per-state eligible-level table. [currentFocusedCountryId]/
+ * [currentFocusedAdmin1Id]/[currentFocusedAdmin2Id] additionally give it the REAL currently-focused
+ * ancestor ids, so a Region/Department candidate is only ever resolved if its own real
+ * [com.cedervs.worlddiscovery.core.discovery.GeographicArea.parentId] actually matches the focused
+ * parent — never merely because its polygon happens to be hit-tested at the same point (the Codex
+ * re-review "parent-scoped click resolution" fix: focus Île-de-France, pan to Nouvelle-Aquitaine,
+ * tap Haute-Vienne must never resolve as a Department attached under the still-focused
+ * Île-de-France). Country resolution is also eligible again as a **fallback**, after Region, while
+ * Country-focused — restoring the pre-hierarchy-gating ability to switch between a fragmented
+ * country's own components (mainland <-> Corsica <-> French Guiana), without ever letting that
+ * fallback win over a genuinely eligible Region hit. This click handler still always queries all
+ * three layers' `queryRenderedFeatures` up front (cheap, and it keeps the decision itself
+ * pure/testable — see [GeographicClickContext]), but only the features for an *eligible,
+ * parent-scoped* level ever get inspected.
+ *
+ * **Ancestor selection is reachable from ANY focus depth (physical-validation fix, this round).**
+ * `COUNTRY` is now an eligible fallback level not only from Country focus but from Region and
+ * Department focus too, and `ADMIN_1` is additionally eligible as a fallback from Department focus —
+ * see [eligibleClickLevels]'s own doc comment for the exact per-state table. This is what makes the
+ * physically-observed bug ("drill into a Department, manually zoom out until only France is visible,
+ * tap France, nothing reliably happens") actually fixable: previously `COUNTRY` was never even
+ * attempted once focus had moved past it, so a tap on France while Region/Department-focused simply
+ * failed to resolve at all. An ancestor fallback is always tried *last*, after every more specific
+ * level in front of it, so it can never shadow a genuinely eligible descendant hit.
+ *
+ * [AdministrativeFocusStateHolder] is a small, separate process-lifetime stack (composed beside,
+ * never merged into, [CountryFocusStateHolder]) so the already physically-validated single-level
+ * Country focus code is never touched by this addition. The visible Back button and system
+ * `BackHandler` are unified across all three levels ([goBackOneGeographicFocusLevel]: pop one
+ * Region/Department frame if present, otherwise fall through to the existing [exitCountryFocus]) —
+ * from the user's perspective, Back always undoes exactly the last focus action, at whichever level
+ * it happened.
+ *
+ * ## Department-level derived first-discovery corridor
+ * [routeSegments] ("derived first-discovery corridor segments — never a GPS route, never canonical
+ * discovery truth, see `DiscoveredRoute.kt`'s own file-level doc comment for the full 'what this
+ * explicitly is NOT' list — globally computed, not yet Department-clipped") is clipped down to
+ * whichever Department is the actual current selection ([currentFocusedAdmin2Id], via
+ * [com.cedervs.worlddiscovery.core.discovery.clipRouteSegmentsToArea]) in the same effect as the
+ * Country/Region/Department overlays above, and rendered by [applyRouteOverlay] — see
+ * `RouteOverlayRendering.kt`'s own doc comment for the exact halo/core/node layer shape and z-order.
+ * Empty (clearing the overlay) whenever no Department is actively selected — this is deliberately
+ * Department-scoped only, never shown at Region/Country/World scale.
+ *
  * ## Live current-position marker
  * [currentPosition] ("where am I right now") is rendered by a separate `LaunchedEffect` below,
  * deliberately structured exactly like the `geometries` effect it sits beside — same
@@ -174,6 +248,9 @@ fun DiscoveryMapView(
     geometries: List<DiscoveredCellGeometry>,
     franceAreaId: String,
     visitedFranceComponents: List<GeographicAreaComponent>,
+    visitedAdmin1Areas: List<GeographicArea>,
+    visitedAdmin2Areas: List<GeographicArea>,
+    routeSegments: List<RouteSegment>,
     currentPosition: LocationObservation?,
     modifier: Modifier = Modifier,
 ) {
@@ -189,6 +266,8 @@ fun DiscoveryMapView(
     val mapClickListenerRegistration = remember { MapClickListenerRegistration() }
     val currentFranceAreaId by rememberUpdatedState(franceAreaId)
     val currentVisitedFranceComponents by rememberUpdatedState(visitedFranceComponents)
+    val currentVisitedAdmin1Areas by rememberUpdatedState(visitedAdmin1Areas)
+    val currentVisitedAdmin2Areas by rememberUpdatedState(visitedAdmin2Areas)
 
     // Composition-local, single nullable slot: non-null means a country-component focus is active,
     // and holds the camera to return to. Initialized from -- and, on every change, written through
@@ -199,11 +278,10 @@ fun DiscoveryMapView(
     var countryFocusReturnCamera by remember { mutableStateOf(CountryFocusStateHolder.current) }
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
 
-    fun enterOrKeepCountryFocus(cameraBeforeThisClick: MapCameraState) {
-        val next = nextCountryFocusReturnCamera(countryFocusReturnCamera, cameraBeforeThisClick)
-        countryFocusReturnCamera = next
-        CountryFocusStateHolder.current = next
-    }
+    // Region/Department focus stack -- see AdministrativeFocusStateHolder's own doc comment for why
+    // this is a small, additive holder composed *alongside* countryFocusReturnCamera above, never
+    // merged into it: the existing single-slot Country-component focus stays completely untouched.
+    var adminFocusStack by remember { mutableStateOf(AdministrativeFocusStateHolder.current) }
 
     fun exitCountryFocus() {
         val map = mapLibreMap
@@ -213,6 +291,60 @@ fun DiscoveryMapView(
         }
         countryFocusReturnCamera = null
         CountryFocusStateHolder.current = null
+    }
+
+    /** The level currently focused, if any — `null` (no focus), [GeographicAreaType.COUNTRY], or
+     * whichever [AdminFocusFrame.areaType] sits on top of [adminFocusStack]. This drives
+     * [eligibleClickLevels]/[resolveGeographicClick] (see `AdministrativeAreaNavigation.kt`'s own
+     * doc comment) — the hierarchy-aware click-eligibility fix that stops an ancestor level from
+     * intercepting a descendant's click. Read fresh on every click (a plain expression, not a
+     * remembered value) so it always reflects whichever focus action most recently ran. */
+    fun currentGeographicFocusLevel(): GeographicAreaType? = when {
+        adminFocusStack.isNotEmpty() -> adminFocusStack.last().areaType
+        countryFocusReturnCamera != null -> GeographicAreaType.COUNTRY
+        else -> null
+    }
+
+    /** The generic, id-based focus-context fields [GeographicClickContext] needs for PARENT-SCOPED
+     * click resolution (Codex re-review fix — see `AdministrativeAreaNavigation.kt`'s own doc
+     * comment): which Country is focused (this app only ever loads one, [franceAreaId], but the
+     * field itself carries no France-specific assumption), and which real Region/Department id is
+     * currently on top of [adminFocusStack], if any. Read fresh on every click, exactly like
+     * [currentGeographicFocusLevel]. */
+    fun currentFocusedCountryId(): String? = if (countryFocusReturnCamera != null) currentFranceAreaId else null
+    fun currentFocusedAdmin1Id(): String? = adminFocusStack.firstOrNull { it.areaType == GeographicAreaType.ADMIN_1 }?.areaId
+    fun currentFocusedAdmin2Id(): String? = adminFocusStack.firstOrNull { it.areaType == GeographicAreaType.ADMIN_2 }?.areaId
+
+    /** The generic "what's currently selected" representation [resolveGeographicAreaStyleRole] needs
+     * (see `GeographicHierarchyStyling.kt`) — derived from exactly the same focus state
+     * [currentGeographicFocusLevel]/[currentFocusedCountryId]/[currentFocusedAdmin1Id]/
+     * [currentFocusedAdmin2Id] already read, so styling and click-resolution can never disagree about
+     * what's focused. Read fresh on every recomposition (a plain expression, not a remembered value),
+     * exactly like those functions. */
+    fun currentGeographicFocusSelection(): GeographicFocusSelection {
+        val level = currentGeographicFocusLevel() ?: return GeographicFocusSelection.NONE
+        val selectedId = when (level) {
+            GeographicAreaType.COUNTRY -> currentFocusedCountryId()
+            GeographicAreaType.ADMIN_1 -> currentFocusedAdmin1Id()
+            GeographicAreaType.ADMIN_2 -> currentFocusedAdmin2Id()
+            else -> null
+        } ?: return GeographicFocusSelection.NONE
+        return GeographicFocusSelection(selectedType = level, selectedId = selectedId)
+    }
+
+    /** Unified Back action: pop one Region/Department frame first (see `AdministrativeAreaNavigation.kt`'s
+     * own doc comment for why this stack is checked before falling through) — only once it's already
+     * empty does Back fall through to the existing, untouched [exitCountryFocus] path. From the
+     * user's perspective this reads as one continuous Back stack across all three levels. */
+    fun goBackOneGeographicFocusLevel() {
+        val backResult = adminFocusBack(adminFocusStack)
+        if (backResult != null) {
+            mapLibreMap?.animateCamera(CameraUpdateFactory.newCameraPosition(backResult.cameraToRestore.toCameraPosition()))
+            adminFocusStack = backResult.newStack
+            AdministrativeFocusStateHolder.current = backResult.newStack
+        } else {
+            exitCountryFocus()
+        }
     }
 
     DisposableEffect(lifecycleOwner, mapView) {
@@ -264,23 +396,53 @@ fun DiscoveryMapView(
                 // what keeps this seeing the latest visited-area data despite being set up only here.
                 mapClickListenerRegistration.attach(map.asMapClickListenerTarget()) { latLng ->
                     if (controller.isDestroyed) return@attach false
-                    val components = currentVisitedFranceComponents
-                    if (components.isEmpty()) return@attach false
                     val screenPoint = map.projection.toScreenLocation(latLng)
-                    val hitFeatures = map.queryRenderedFeatures(screenPoint, COUNTRY_OVERLAY_FILL_LAYER_ID)
-                    val component = resolveClickedCountryComponent(
-                        hitFeatures,
-                        components,
-                        currentFranceAreaId,
-                        map.cameraPosition.zoom,
-                    ) ?: return@attach false
-
+                    val zoom = map.cameraPosition.zoom
                     val cameraBeforeThisClick = map.cameraPosition.toMapCameraState()
-                    enterOrKeepCountryFocus(cameraBeforeThisClick)
-                    map.animateCamera(
-                        CameraUpdateFactory.newLatLngBounds(component.bounds.toLatLngBounds(), COUNTRY_FOCUS_FIT_PADDING_PX),
+
+                    // Hierarchy-aware, PARENT-SCOPED click resolution -- see
+                    // AdministrativeAreaNavigation.kt's own doc comment (both correction rounds:
+                    // eligibility by focus TYPE, then candidate filtering by the actually-focused
+                    // PARENT's real id). currentGeographicFocusLevel() gates which level(s)
+                    // resolveGeographicClick even attempts; the three currentFocused*Id() calls give
+                    // it the real ancestor ids to scope Region/Department candidates against, so a
+                    // Region/Department belonging to a different, unfocused parent can never resolve
+                    // as if it were the focused parent's own child, regardless of geographic overlap.
+                    val clickContext = GeographicClickContext(
+                        currentFocusLevel = currentGeographicFocusLevel(),
+                        focusedCountryId = currentFocusedCountryId(),
+                        focusedAdmin1Id = currentFocusedAdmin1Id(),
+                        focusedAdmin2Id = currentFocusedAdmin2Id(),
+                        zoomLevel = zoom,
+                        countryHitFeatures = map.queryRenderedFeatures(screenPoint, COUNTRY_OVERLAY_FILL_LAYER_ID),
+                        visitedCountryComponents = currentVisitedFranceComponents,
+                        countryAreaId = currentFranceAreaId,
+                        regionHitFeatures = map.queryRenderedFeatures(screenPoint, ADMIN1_OVERLAY_FILL_LAYER_ID),
+                        visitedRegions = currentVisitedAdmin1Areas,
+                        departmentHitFeatures = map.queryRenderedFeatures(screenPoint, ADMIN2_OVERLAY_FILL_LAYER_ID),
+                        visitedDepartments = currentVisitedAdmin2Areas,
                     )
-                    true
+
+                    val resolution = resolveGeographicClick(clickContext)
+                    if (resolution == null) {
+                        false
+                    } else {
+                        // Single pure decision for the whole state transition -- see
+                        // AdministrativeAreaNavigation.kt's own doc comment. Fixes this round's
+                        // physical camera bug: an ancestor selection (Country, or a Region reselected
+                        // from Department depth) now always clears any stale deeper focus, and the
+                        // camera unconditionally fits the newly selected geography's own bounds,
+                        // regardless of any manual pan/zoom that preceded the tap.
+                        val outcome = nextGeographicSelectionOutcome(resolution, countryFocusReturnCamera, adminFocusStack, cameraBeforeThisClick)
+                        countryFocusReturnCamera = outcome.nextCountryFocusReturnCamera
+                        CountryFocusStateHolder.current = outcome.nextCountryFocusReturnCamera
+                        adminFocusStack = outcome.nextAdminFocusStack
+                        AdministrativeFocusStateHolder.current = outcome.nextAdminFocusStack
+                        map.animateCamera(
+                            CameraUpdateFactory.newLatLngBounds(outcome.cameraTargetBounds.toLatLngBounds(), COUNTRY_FOCUS_FIT_PADDING_PX),
+                        )
+                        true
+                    }
                 }
             }
         }
@@ -292,14 +454,41 @@ fun DiscoveryMapView(
         applyDiscoveredCellGeometries(style, geometries)
     }
 
-    LaunchedEffect(mapLibreMap, visitedFranceComponents) {
+    // Re-applies on EITHER a visited-data change OR a focus change (adminFocusStack/
+    // countryFocusReturnCamera) -- selection-relative styling (see GeographicHierarchyStyling.kt)
+    // means color now depends on the current focus, not only on which areas are visited, so a focus
+    // change alone (no new discovery) must still re-tag and re-render every feature's styleRole. Also
+    // keyed on routeSegments (new discovery data can change the derived route independently of any
+    // focus/hierarchy change) -- see RouteOverlayRendering.kt's own doc comment.
+    LaunchedEffect(mapLibreMap, visitedFranceComponents, visitedAdmin1Areas, visitedAdmin2Areas, adminFocusStack, countryFocusReturnCamera, routeSegments) {
         if (controller.isDestroyed) return@LaunchedEffect
         val style = mapLibreMap?.style ?: return@LaunchedEffect
-        applyCountryOverlay(style, visitedFranceComponents)
+        val selection = currentGeographicFocusSelection()
+        applyCountryOverlay(style, visitedFranceComponents, selection)
         // PHYSICAL PROTOTYPE -- see BasemapAlignedBorderRendering.kt's own doc comment. Same
         // effect/key as applyCountryOverlay above (never a separate subscription), so both stay
-        // perfectly in sync with the exact same visited-components snapshot.
-        applyBasemapAlignedFranceBorder(style, visitedFranceComponents)
+        // perfectly in sync with the exact same visited-components snapshot AND the same selection.
+        applyBasemapAlignedFranceBorder(
+            style,
+            visitedFranceComponents,
+            resolveGeographicAreaStyleRole(GeographicAreaType.COUNTRY, currentFranceAreaId, null, selection),
+        )
+        // Region/Department overlay -- same effect/single-snapshot principle, see
+        // AdministrativeOverlayRendering.kt's own doc comment. Never touches the Country overlay's
+        // own source/layers above.
+        applyAdministrativeOverlay(style, visitedAdmin1Areas, visitedAdmin2Areas, selection)
+        // Department-level route visualization -- see RouteOverlayRendering.kt's own doc comment.
+        // Only ever non-empty while an ADMIN_2 is the actual current selection (never at Region/
+        // Country/World scale, per this round's own explicit "no blue spaghetti clutter" requirement)
+        // -- clipped to that specific Department's own real geometry, never every route in France.
+        val selectedDepartmentId = currentFocusedAdmin2Id()
+        val selectedDepartmentArea = selectedDepartmentId?.let { id -> visitedAdmin2Areas.find { it.id == id } }
+        val departmentRouteSegments = if (selectedDepartmentArea != null) {
+            clipRouteSegmentsToArea(routeSegments, selectedDepartmentArea)
+        } else {
+            emptyList()
+        }
+        applyRouteOverlay(style, departmentRouteSegments)
     }
 
     LaunchedEffect(mapLibreMap, currentPosition) {
@@ -308,13 +497,14 @@ fun DiscoveryMapView(
         applyCurrentPosition(style, currentPosition)
     }
 
-    BackHandler(enabled = countryFocusReturnCamera != null) { exitCountryFocus() }
+    val anyGeographicFocusActive = adminFocusStack.isNotEmpty() || countryFocusReturnCamera != null
+    BackHandler(enabled = anyGeographicFocusActive) { goBackOneGeographicFocusLevel() }
 
     Box(modifier = modifier) {
         AndroidView(factory = { mapView }, modifier = Modifier)
-        if (countryFocusReturnCamera != null) {
+        if (anyGeographicFocusActive) {
             Button(
-                onClick = { exitCountryFocus() },
+                onClick = { goBackOneGeographicFocusLevel() },
                 modifier = Modifier.align(Alignment.TopStart).padding(16.dp),
             ) {
                 Text(stringResource(R.string.map_country_focus_back))

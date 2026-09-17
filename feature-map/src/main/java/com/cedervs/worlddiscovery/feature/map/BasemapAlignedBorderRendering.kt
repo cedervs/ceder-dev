@@ -55,9 +55,6 @@ private const val MAINLAND_FRANCE_ADM0_CODE = "FRA"
  * deliberate, documented order contract. */
 internal const val MAINLAND_FRANCE_COMPONENT_INDEX_PROTOTYPE = 0
 
-// Same provisional orange as the existing fill/outline (COUNTRY_OVERLAY_VISITED_FILL_COLOR) --
-// deliberately not a new color, so the basemap-aligned line still reads as "the same World
-// Discovery visited-border language", not a second, different-looking feature.
 private const val BASEMAP_ALIGNED_BORDER_WIDTH = 2.0f
 
 /**
@@ -98,20 +95,33 @@ internal fun mainlandFranceAdmin2BorderFilter(): Expression =
     )
 
 /**
- * Creates (once) and updates the visibility of the basemap-aligned mainland-France border line.
- * Never touches the `openmaptiles` source itself (owned entirely by the currently-loaded basemap
- * style, not by this app) — only adds one new `LineLayer` referencing it by source id/source-layer.
+ * Creates (once) and updates the visibility AND color of the basemap-aligned mainland-France border
+ * line. Never touches the `openmaptiles` source itself (owned entirely by the currently-loaded
+ * basemap style, not by this app) — only adds one new `LineLayer` referencing it by source
+ * id/source-layer.
+ *
+ * **Color is selection-relative**, exactly like [applyCountryOverlay]'s own fill/outline (see
+ * `GeographicHierarchyStyling.kt`) — but this line sources from the *basemap's* own vector tiles, not
+ * this app's GeoJSON source, so there is no per-feature `styleRole` property to tag: [countryStyleRole]
+ * is resolved once by the caller (`DiscoveryMapView`, from the same [GeographicFocusSelection] passed
+ * to [applyCountryOverlay]) and applied as a literal `lineColor`, updated on every call exactly like
+ * [visibility] already was — never a static color set once at layer-creation time.
  *
  * Called from the same effect as [applyCountryOverlay] (see `DiscoveryMapView.kt`), so it runs
- * exactly when the visited-components snapshot changes — never on a camera-only zoom/pan, matching
- * every other rendering function in this module.
+ * exactly when the visited-components snapshot OR the current selection changes — never on a
+ * camera-only zoom/pan, matching every other rendering function in this module.
  */
-internal fun applyBasemapAlignedFranceBorder(style: Style, visitedComponents: List<GeographicAreaComponent>) {
+internal fun applyBasemapAlignedFranceBorder(
+    style: Style,
+    visitedComponents: List<GeographicAreaComponent>,
+    countryStyleRole: GeographicAreaStyleRole,
+) {
     val visibility = basemapAlignedBorderVisibility(isMainlandFranceVisited(visitedComponents))
+    val lineColor = Color.parseColor(countryStyleRole.fillColorHex())
 
     val existingLayer = style.getLayerAs<Layer>(BASEMAP_ALIGNED_FRANCE_BORDER_LAYER_ID)
     if (existingLayer != null) {
-        existingLayer.setProperties(PropertyFactory.visibility(visibility))
+        existingLayer.setProperties(PropertyFactory.visibility(visibility), PropertyFactory.lineColor(lineColor))
         return
     }
 
@@ -119,7 +129,7 @@ internal fun applyBasemapAlignedFranceBorder(style: Style, visitedComponents: Li
         .withSourceLayer(BASEMAP_BOUNDARY_SOURCE_LAYER)
         .withFilter(mainlandFranceAdmin2BorderFilter())
         .withProperties(
-            PropertyFactory.lineColor(Color.parseColor(COUNTRY_OVERLAY_VISITED_FILL_COLOR)),
+            PropertyFactory.lineColor(lineColor),
             PropertyFactory.lineWidth(BASEMAP_ALIGNED_BORDER_WIDTH),
             PropertyFactory.visibility(visibility),
         )

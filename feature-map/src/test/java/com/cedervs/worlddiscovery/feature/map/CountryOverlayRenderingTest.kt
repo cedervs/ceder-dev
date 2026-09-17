@@ -182,6 +182,45 @@ class CountryOverlayRenderingTest {
         assertEquals("country:FR", feature.getStringProperty(COUNTRY_OVERLAY_AREA_ID_PROPERTY))
     }
 
+    // ==========================================================================================
+    // Physical-validation correction round: selection-relative styleRole tagging (see
+    // GeographicHierarchyStylingTest.kt for exhaustive role-resolution coverage; this file only
+    // proves the tag is actually threaded through toCountryOverlayFeature/countryOverlayFeatureCollection).
+    // ==========================================================================================
+
+    @Test
+    fun `with no selection, every component is tagged DIRECT_SUBLEVEL -- Country is the next selectable level from the World view`() {
+        val collection = countryOverlayFeatureCollection(visitedComponents = listOf(mainlandComponent, corsicaComponent))
+
+        val roles = collection.features()!!.map { it.getStringProperty(GEOGRAPHIC_STYLE_ROLE_PROPERTY) }.toSet()
+        assertEquals(setOf(GeographicAreaStyleRole.DIRECT_SUBLEVEL.name), roles)
+    }
+
+    @Test
+    fun `once Country focus is active, ALL its components are tagged SELECTED together, never per-island`() {
+        val selection = GeographicFocusSelection(GeographicAreaType.COUNTRY, "country:FR")
+
+        val collection = countryOverlayFeatureCollection(
+            visitedComponents = listOf(mainlandComponent, corsicaComponent, guianaComponent),
+            selection = selection,
+        )
+
+        val roles = collection.features()!!.map { it.getStringProperty(GEOGRAPHIC_STYLE_ROLE_PROPERTY) }.toSet()
+        assertEquals(setOf(GeographicAreaStyleRole.SELECTED.name), roles)
+    }
+
+    @Test
+    fun `once a Region is focused, Country's components are tagged ANCESTOR_CONTEXT, de-emphasized`() {
+        val selection = GeographicFocusSelection(GeographicAreaType.ADMIN_1, "admin1:FR-NAQ")
+
+        val collection = countryOverlayFeatureCollection(visitedComponents = listOf(mainlandComponent), selection = selection)
+
+        assertEquals(
+            GeographicAreaStyleRole.ANCESTOR_CONTEXT.name,
+            collection.features()!!.single().getStringProperty(GEOGRAPHIC_STYLE_ROLE_PROPERTY),
+        )
+    }
+
     @Test
     fun `isCountryOverlayInteractive is true below the fade-out end zoom`() {
         assertTrue(isCountryOverlayInteractive(COUNTRY_OVERLAY_FADE_OUT_END_ZOOM - 0.01))

@@ -787,14 +787,677 @@ built now:**
     World → France → Nouvelle-Aquitaine → visited département(s) → actual
     discovered areas → H3). Only actually-visited administrative areas
     receive visited styling at each level; administrative hierarchy is
-    country-aware since structures differ worldwide. Not implemented this
-    round — see `docs/ai-context/OPEN_QUESTIONS.md`'s existing "hybrid
-    geographic ingestion and per-country hierarchy mapping" entry.
+    country-aware since structures differ worldwide. **Country → Region →
+    Department is now IMPLEMENTED for France (Nouvelle-Aquitaine's own
+    departments; see Phase H below) — not implemented this round: below
+    Department (local discovered areas as their own navigable level) and
+    every other country** — see `docs/ai-context/OPEN_QUESTIONS.md`'s
+    existing "hybrid geographic ingestion and per-country hierarchy
+    mapping" entry.
 -   **Orange means VISITED/PRESENCE, never "fully explored," "100%
     completed," or "full geographic coverage."** Exact exploration
     percentage remains derived exclusively from canonical H3 discovery
     data — this rule is unchanged and must be preserved by any future
     admin-hierarchy work.
+
+### Phase H — France Country → Region (ADMIN_1) → Department (ADMIN_2) hierarchy, IMPLEMENTED, NOT YET PHYSICALLY VALIDATED
+
+**Status: IMPLEMENTED, on top of Phase F/G3 above, still uncommitted. NOT physically validated on
+device** — validated only via the manual `kotlinc`/JBR JUnit toolchain (Gradle's standing
+`JAVA_HOME`/loopback failure persisted; attempted once, not retried, per established practice).
+Real device validation (Samsung) is still required before this can be marked physically validated.
+
+**IMPLEMENTED:**
+
+-   Domain model extended, not replaced: `ADMIN_1`/`ADMIN_2` `GeographicArea`s reuse the existing
+    generic type/`parentId` link exactly as designed (`GeographicArea.kt`'s own doc comment) — no
+    `FranceRegion`/`FranceDepartment` types were introduced.
+-   `core-discovery-engine/src/main/resources/geo/france/{regions,departments}/*.json`: 13
+    metropolitan regions (all of France's regions except overseas) + Nouvelle-Aquitaine's 12
+    departments, generated from real OSM administrative relations via
+    `polygons.openstreetmap.fr/get_geojson.py` (the same proven mechanism Phase F/G3 already used),
+    by a new `tools/geo/GenerateFranceAdministrativeReference.kt` generator — see
+    `tools/geo/README.md`'s new "France Region/Department reference data" section for every relation
+    ID, ISO 3166-2/INSEE code, and the licensing/provenance text.
+-   Classification: a new `ClassifyDiscoveredCellsByGeographicAreas` (generic over any list of
+    sibling `GeographicArea`s, single pass per cell) drives `MapReadState.franceAdmin1Statuses`/
+    `franceAdmin2Statuses`, wired through `ObserveMapReadState`/`AppContainer` from the exact same
+    validated-cell snapshot as Country-level and fine-H3 rendering — one Room subscription, still.
+    Presence at a deeper level is never separately marked at shallower levels; each level's own
+    `visited` is independently derived from the same canonical cells against its own real (nested)
+    geometry, which is what makes "Haute-Vienne visited implies Nouvelle-Aquitaine and France visited"
+    true without any propagation code.
+-   Rendering: new `feature-map/.../AdministrativeOverlayRendering.kt` — separate source/layers per
+    level (never touches the Country overlay's own source/layers), one Feature per visited area (its
+    full `MultiPolygon`, including any real islands, never decomposed per-component), lighter orange
+    per level (Country `#FF8C00` unchanged; Region `#FFA733`; Department `#FFC670`), provisional
+    zoom bands for a progressive drill-down handoff (Region 3–10, Department 6–13, Country unchanged
+    0–7).
+-   Navigation: new `AdministrativeFocusStateHolder` (a small, additive Region/Department focus
+    stack, max depth 2) composed *beside*, never merged into, the existing single-slot
+    `CountryFocusStateHolder`. The underlying Country-component functions
+    (`resolveClickedCountryComponent`/`nextCountryFocusReturnCamera`) are themselves unchanged, but
+    which *click-eligibility state* gets to call them has changed twice across two correction rounds
+    — see "Codex review correction rounds" below for the exact current behavior (Region takes
+    priority; Country-component switching is a fallback, not the byte-for-byte-identical first
+    attempt it was before this feature existed). Click resolution is **hierarchy-aware and
+    parent-scoped** (`eligibleClickLevels`/`resolveGeographicClick` in
+    `AdministrativeAreaNavigation.kt`): only the level(s) actually eligible from the *current* focus
+    state are ever attempted, and candidates are filtered by their own real `parentId` against the
+    actually-focused ancestor, so an ancestor can never intercept a descendant's click and a
+    Region/Department belonging to an unfocused parent can never resolve as if it belonged to the
+    focused one. Back is unified (`goBackOneGeographicFocusLevel`): pops one Region/Department frame
+    if present, otherwise falls through to the existing `exitCountryFocus()`.
+    `MapNavigationStateResetter` now also clears the new stack on a real session transition.
+-   `MapScreen`/`DiscoveryMapView` pass `visitedAdmin1Areas`/`visitedAdmin2Areas` (already filtered
+    to `visited == true`, mirroring the existing `visitedFranceComponents` convention) through.
+
+**Scope, deliberately not "full France" this round (documented data-population limitation, not an
+architecture limit):**
+
+-   **Only Nouvelle-Aquitaine has Department-level (`ADMIN_2`) data.** All 13 metropolitan regions
+    have Region-level (`ADMIN_1`) data. Populating the remaining 12 regions' departments is a
+    mechanical follow-up (rerun the same generator against more OSM relations), not a code change —
+    `ClassifyDiscoveredCellsByGeographicAreas`/the rendering/navigation code already work generically
+    over however many areas are loaded.
+-   **French overseas regions/departments are not included** (Guadeloupe, Martinique, Guyane, La
+    Réunion, Mayotte) — French Guiana keeps its existing Country-level-component-only representation;
+    it has no `ADMIN_1`/`ADMIN_2` entry.
+-   **Corse is included as a region** (`admin1:FR-20R`) with no departments loaded under it this round.
+-   Regions/departments with real coastal islands (e.g. Bretagne, Charente-Maritime) render/navigate
+    as ONE shape covering every component together — a deliberate scoping decision distinct from
+    Country level's own per-component (mainland/Corsica/Guiana) navigation; `GeographicAreaComponent`
+    still works unchanged on any of this round's areas, so per-island navigation remains available to
+    a future round with zero data regeneration.
+
+### Phase H, Codex review correction rounds
+
+Two rounds of independent Codex review against the uncommitted Phase H implementation, each fully
+addressed before the next began. **Status after both: FIXED, on top of Phase H above, still
+uncommitted, still NOT physically validated on device.**
+
+#### Round 1 — 4 correctness fixes + 2 minor items
+
+-   **Hierarchy-aware click eligibility (was Blocking).** The previous click handler tried
+    Country resolution unconditionally first, then Department, then Region — an ancestor (Country)
+    could intercept a descendant's click (e.g. Region) once both overlays were simultaneously
+    interactive. Fixed with `eligibleClickLevels(currentFocusLevel)`, a pure function returning
+    exactly the level(s) eligible to be clicked next given the current focus state. **Superseded by
+    Round 2 below** — the exact table this round shipped (`COUNTRY -> [ADMIN_1]` only, permanently
+    removing Country-component sibling switching while Country-focused) was itself corrected in
+    Round 2 after Codex flagged it as an unintended behavior change; see Round 2's own entry for the
+    current, real table.
+-   **Index-independent admin focus stack (was Blocking).** `AdminFocusFrame` now carries its own
+    real `GeographicAreaType` (`ADMIN_1`/`ADMIN_2`), never inferred from stack position — the
+    previous implementation assumed "index 0 is always Region, index 1 is always Department," which
+    a direct Department selection from an empty stack (storing Department at index 0) could corrupt
+    on a second Department tap. `nextAdminFocusStack` now looks up existing frames by type everywhere.
+-   **Parent hierarchy validation (was Important).** New `validateGeographicAreaHierarchy` (generic,
+    not France-specific — no `FranceRegion`/`FranceDepartment` rules) checks, at the loaded-set
+    level (never inside a single-file parser, which cannot know about other files): unique ids,
+    `COUNTRY` areas have no parent, `ADMIN_1`'s parent resolves and is a `COUNTRY`, `ADMIN_2`'s
+    parent resolves and is an `ADMIN_1`, every non-null `parentId` resolves to something real.
+    `loadFranceAdministrativeAreas` now takes the France `COUNTRY` area as a parameter and validates
+    the combined set against it.
+-   **Child → ancestor presence invariant (was Important).** Country classification uses
+    `geoBoundaries` geometry; Region/Department classification uses OpenStreetMap geometry — the two
+    can genuinely disagree by a few meters near a shared border, which could otherwise leave a
+    visited child's own ancestor falsely unvisited. New `promoteAncestorPresence` (pure, generic,
+    reusable for any adjacent level pair) unions each parent's raw classification with its real
+    children's presence — **child → parent only, never parent → child**: a visited France does not
+    mark any region visited, and a visited region does not mark any department visited. Wired into
+    `ObserveMapReadState` for both Department→Region and Region→Country. Never persisted — a
+    read-time-only correction recomputed fresh on every emission.
+-   **Classification bounds prefilter (Minor).** `GeographicBounds.contains` (antimeridian-safe, in
+    `GeographicGeometry.kt`) added as a cheap prefilter before the real point-in-polygon test in
+    `ClassifyDiscoveredCellsByGeographicAreas` — a safe narrowing only, documented as insufficient on
+    its own before a genuine Europe/worldwide rollout (would need a real spatial index instead of
+    this linear per-area bounds scan).
+-   **Stale KDoc (Minor).** `MapReadState`'s own doc comment incorrectly claimed `franceComponents`
+    was "currently unconsumed by rendering" — `MapScreen` has always consumed it. Corrected.
+
+**Round 1 tests:** `PromoteAncestorPresenceTest` (including the exact Codex-specified synthetic
+scenario: child geometry contains a discovered cell, parent's own raw classification geometry does
+not, ancestor still resolves VISITED), `GeographicAreaHierarchyValidationTest` (every
+malformed-hierarchy case Codex listed, plus the real bundled France set proven backward-compatible),
+new bounds-prefilter coverage in `GeographicGeometryTest`, and an `AdministrativeAreaNavigationTest`
+rewrite covering the required regression list at that time, plus the hierarchy-aware resolution
+sequence itself driven through `resolveGeographicClick`. `ObserveMapReadStateTest` gained end-to-end
+tests proving the promotion invariant through the real `ObserveMapReadState` pipeline.
+
+**`DiscoveryMapView.kt`/`MapScreen.kt` compile status — corrected from the round-1-prior report.**
+Round 1 assembled a real (if partial) Jetpack Compose classpath in the manual toolchain (the bundled
+`compose-compiler-plugin.jar`, extracted `classes.jar` from the relevant Compose/AndroidX AARs,
+`-jvm-target 11`, plus a minimal 3-file subset of `core-location` — `LocationObservation.kt`/
+`LocationPermissions.kt`/`LocationTestOutcome.kt`, the exact production types these two files
+reference — compiled alongside them) and **successfully compiled `DiscoveryMapView.kt`, `MapScreen.kt`,
+`CurrentPositionRendering.kt`, and `MapViewLifecycleController.kt` with zero errors** — this classpath
+was reused and re-verified in Round 2 too (see below). `AppContainer.kt` was **not** compiled in
+either round (its own dependency surface — Room, Tink, Google Identity/Credentials, Ktor — is a
+disproportionate expansion for what remains a small, mechanically-verified edit) and remains
+code-reviewed only.
+
+#### Round 2 — Codex re-review, 2 remaining findings
+
+Codex re-reviewed Round 1's fix and found it incomplete in two ways: click eligibility was
+hierarchy-aware by *type* but not *parent-scoped* (a Region/Department could still resolve as a
+child of the wrong, unfocused ancestor purely from geographic overlap), and the child→ancestor
+presence promotion fixed the aggregate whole-Country status but not the per-COMPONENT statuses that
+actually drive Country-level rendering/navigation. A third, minor finding: Round 1's strict
+eligibility change had an unintended side effect — it silently removed the pre-existing ability to
+switch between a fragmented country's own components (mainland ↔ Corsica ↔ French Guiana) while
+Country-focused, contradicting other documentation's "Country behavior is unchanged" claims. All
+three fixed:
+
+-   **Parent-scoped click resolution.** `resolveGeographicClick` now filters every Region/Department
+    candidate list by its own real `GeographicArea.parentId` against the actually-focused ancestor's
+    real id, BEFORE testing hit features — never relying on geographic overlap alone. Concretely:
+    `ADMIN_1` candidates are filtered to `parentId == focusedCountryId`; `ADMIN_2` candidates to
+    `parentId == focusedAdmin1Id`. `GeographicClickContext` gained `focusedCountryId`/
+    `focusedAdmin1Id`/`focusedAdmin2Id` — a generic, id-based representation of "where in the
+    hierarchy focus currently is," not a France-specific concept, computed fresh per click in
+    `DiscoveryMapView` from `CountryFocusStateHolder`/`AdministrativeFocusStateHolder`'s own state. A
+    Department candidate that fails the parent-scoped filter simply isn't offered to
+    `resolveClickedAdministrativeArea` at all for that level; the next eligible level (typically the
+    Region layer, at the same point) is tried next — which is exactly what makes "tap a Department
+    belonging to a different, unfocused Region" read as a **Region switch**, never a corrupted
+    attachment. `nextAdminFocusStack` was changed to take the real, already-resolved `GeographicArea`
+    (not a bare id string) specifically so it always knows the target's own real `parentId`, and now
+    `require()`s (fails loudly, never silently) that an existing Region frame's id matches the
+    target Department's `parentId` — a defense-in-depth internal-precondition check that should never
+    actually fire through the real, now-parent-scoped click path.
+-   **Country-component promotion, at the correct component.** New `promoteAncestorComponentPresence`
+    (in `PromoteAncestorPresence.kt`) — the per-COMPONENT counterpart to Round 1's
+    `promoteAncestorPresence`. Without it, `MapReadState.franceComponents` (which actually drives
+    Country-level rendering/click-navigation, not just the aggregate `franceVisitedStatus`) could stay
+    entirely unvisited even when the aggregate Country and a real visited Region both correctly read
+    `visited == true` — France would be logically visited yet render nothing and accept no clicks.
+    The fix promotes each visited Region/Department into the ONE real Country component its own
+    geometry actually falls within, tested via `PointInPolygonClassifier` against each component's
+    polygon — **never all components, and never a hardcoded index** (no `if region ==
+    "Nouvelle-Aquitaine" then componentIndex = 0`); a region matching no loaded component promotes
+    nothing. Certified/non-certified presence are promoted independently at this level too, exactly
+    like Round 1's aggregate version. Wired into `ObserveMapReadState` immediately after
+    `franceComponents`' own raw classification. **Round 2's own first implementation of the
+    representative point used the raw arithmetic average of the region's largest polygon's outer-ring
+    vertices, unverified — a real defect a further Codex review caught (not a guaranteed interior
+    point for a concave polygon, a polygon with a hole, or an antimeridian-crossing ring) and Round 3
+    below replaced.**
+-   **Country-component sibling fallback restored (Minor — a real, documented behavior change, not
+    silently reverted).** `eligibleClickLevels(COUNTRY)` is now `[ADMIN_1, COUNTRY]` (was `[ADMIN_1]`
+    only in Round 1): Region resolution is still always tried FIRST while Country-focused, so it can
+    never be intercepted by the Country-component fallback — but if Region resolution finds nothing
+    at all, Country-component resolution is now tried as a fallback, restoring mainland ↔ Corsica ↔
+    French Guiana switching while Country-focused. This is the accurate current behavior; any earlier
+    text in this document claiming Country-component behavior is "byte-for-byte unchanged" refers only
+    to the underlying `resolveClickedCountryComponent`/`nextCountryFocusReturnCamera` functions
+    themselves (genuinely untouched across both rounds), not to which click-eligibility state gets to
+    call them.
+
+**Round 2 tests (real, run via the manual toolchain — `core-discovery-engine`: 209/209 passed;
+`feature-map`: 159/159 passed; same `CurrentPositionRenderingTest`/`MapViewLifecycleControllerTest`
+exclusion as Round 1, for the same reason):** new `PromoteAncestorComponentPresenceTest` (including
+Codex's own exact synthetic scenario: child/admin geometry contains a discovered cell, the parent
+Country's own raw component geometry does not, exactly one real component is promoted, an unrelated
+component stays unvisited, certified/non-certified promoted independently); `ObserveMapReadStateTest`
+gained an assertion that a Limoges discovery also visits the correct France *component*, not just the
+aggregate status. `AdministrativeAreaNavigationTest` gained the full Codex-specified parent-scoping
+regression list (Region A vs. a Department whose real parent is Region B; a focused Department vs. a
+Department in a different Region; a Region's own valid child Department; sibling Region switching
+with no stale child; sibling Department reselection within the same Region; a Department with a
+malformed/null `parentId`) plus the restored Country-component-fallback behavior (fallback fires only
+after a Region miss; a valid Region hit always still wins over the fallback) — all driven through the
+real `resolveGeographicClick`/`nextAdminFocusStack` functions `DiscoveryMapView` itself calls, not
+isolated helpers. `DiscoveryMapView.kt`/`MapScreen.kt` were re-compiled successfully with the new
+signatures (`nextAdminFocusStack(stack, camera, targetArea: GeographicArea)`,
+`GeographicClickContext`'s three new `focused*Id` fields) using the same manual Compose classpath
+Round 1 assembled.
+
+#### Round 3 — Codex re-review, 1 remaining defect: unsafe representative-point geometry
+
+Codex's latest review passed everything from Rounds 1–2 (parent-scoped click navigation, Country
+fallback priority, focus-stack invariants, hierarchy validation, aggregate child→ancestor promotion,
+trust-state behavior, rendering/navigation wiring) and found exactly one remaining Important defect:
+Round 2's own `representativeAreaPoint` computed the plain arithmetic average of a region's largest
+polygon's outer-ring vertices and trusted it, unverified, as "a point inside the region." That is not
+a guaranteed interior point — it can land outside a concave polygon, inside a hole, or (for a naively
+longitude-averaged antimeridian-crossing ring) somewhere on the wrong side of the globe entirely.
+Fixed:
+
+-   **New `findVerifiedInteriorPoint` (in `InteriorPointFinder.kt`), replacing `representativeAreaPoint`
+    entirely.** Never trusts a candidate point without checking: for each polygon component of the
+    area (searched in order — **never assumes the largest, `polygons[0]`, is correct**, per Codex's
+    own explicit instruction), three increasingly-robust candidate strategies are tried in order —
+    (1) the polygon's own antimeridian-safe bounding-box midpoint, (2) the true signed-area polygon
+    centroid (the standard formula, genuinely different from and more robust than a vertex average),
+    (3) several antimeridian-agnostic horizontal-scanline interior-span midpoints (the robust fallback
+    for concave shapes and shapes with holes) — and every single candidate, from every strategy, is
+    verified against `PointInPolygonClassifier` (the same authoritative containment test used
+    everywhere else in this module) before being trusted. If no candidate for any polygon component
+    verifies, the function returns `null` — **explicit failure, never a guess** —
+    `promoteAncestorComponentPresence` treats a `null` result as "that child contributes no promotion
+    for any component," never a crash, never a wrong-but-plausible fallback point.
+-   **`promoteAncestorComponentPresence` updated accordingly** — computes each visited child's
+    verified interior point once per call (not once per component), and a child whose point is `null`
+    simply matches no component. Semantics otherwise unchanged: exactly one real component promoted
+    per matching child, never all components, never a hardcoded index/name; certified/non-certified
+    presence still promoted independently.
+-   **The "one Admin1 maps to exactly one Country component" property is now a real-artifact-verified
+    fact about this app's own bundled data, not an assumption.** `InteriorPointFinderRealDataTest`
+    loads the real bundled France reference and, for all 13 metropolitan `ADMIN_1` regions, proves:
+    a verified interior point exists; it is genuinely inside that region's own real geometry; it
+    matches exactly one real France Country component (never zero, never more than one); Corse maps
+    to the Corsica component and the other 12 map to the mainland component. **This is a verified
+    France-prototype property, not a worldwide guarantee** — a future genuinely fragmented `ADMIN_1`
+    (a region itself split across two disjoint Country components, which does not occur among
+    France's own current regions) would need explicit component-ancestry metadata or
+    discovery-location-aware evidence that does not exist yet; nothing in this code silently assumes
+    it already works for that case.
+
+**Round 3 tests (real, run via the manual toolchain — `core-discovery-engine`: 223/223 passed; no
+`feature-map` changes this round, so its own suite was not re-run — Round 2's 159/159 stands, and a
+grep confirms no `feature-map` file ever referenced the removed `representativeAreaPoint`):** new
+`InteriorPointFinderTest` (convex polygon; a strongly concave/crescent polygon where the naive vertex
+average genuinely falls outside — confirmed as a test premise, not merely asserted; a polygon with a
+hole where the naive centroid/bbox-center genuinely falls inside the hole — the search must move past
+it; an antimeridian-crossing polygon; a fragmented `MultiPolygon` where the first, largest component
+is degenerate and a later, smaller one is valid; a fully degenerate/collinear polygon that must return
+`null`, never a guess; determinism across repeated calls) and `InteriorPointFinderRealDataTest` (the
+real-artifact regression above). `PromoteAncestorComponentPresenceTest` gained a null-safe-handling
+test (a degenerate child promotes nothing) and a genuine classification-driven end-to-end fixture (a
+real discovered cell classified via `ClassifyDiscoveredCellsByGeographicArea` into a real region,
+whose real, derived — not hand-constructed — `visited` status then correctly promotes the matching
+Country component), per Codex's own preference for exercising the real
+discovery→classification→promotion path over hand-built statuses alone.
+
+**Not implemented this round (see `docs/ai-context/`'s own status-label conventions):** worldwide/
+Europe generalization beyond France; nationwide department coverage beyond Nouvelle-Aquitaine;
+overseas French administrative areas; Admin3/communes; local discovery-area aggregation; "fully
+explored"/percentage semantics at Region/Department level (VISITED/PRESENCE only, unchanged rule);
+final visual identity for the three-level orange hierarchy (values above are provisional, same
+`PRODUCT CALIBRATION REQUIRED` status as the existing Country-level constants); a real spatial index
+for classification (documented as required before a genuine Europe/worldwide rollout, not attempted
+this round beyond the small bounds prefilter above); worldwide fragmented-`ADMIN_1`-to-multiple-
+Country-components support (verified only for France's own current, non-fragmented regions — see
+Round 3's own entry above).
+
+#### Round 4 — physical validation FAILED, corrections in progress: selection-relative color hierarchy + ancestor-selection camera bug
+
+**Physical validation status: FAILED / CORRECTIONS IN PROGRESS — hierarchy is NOT yet marked
+physically validated.** Testing on the Samsung device surfaced two problems against Rounds 1–3's own
+(logically correct, Codex-passed) implementation: (1) the fixed per-level orange rule ("Country
+darkest, Region medium, Department lightest, permanently") did not match the approved reference
+design — the currently-selected level needs to read as the lightest/richest orange, not whichever
+level happens to be Country; (2) a real camera bug — after drilling into a Region or Department and
+then manually zooming out, tapping France changed nothing, because Country was never even eligible
+to resolve a click once focus had moved past it.
+
+**1. Selection-relative color hierarchy, replacing the fixed per-level rule.** New
+`GeographicHierarchyStyling.kt`: `GeographicAreaStyleRole` (`SELECTED` / `DIRECT_SUBLEVEL` /
+`ANCESTOR_CONTEXT`) and the pure `resolveGeographicAreaStyleRole(areaType, areaId, areaParentId,
+selection)` decision — depth-relative to whatever `GeographicFocusSelection` names as currently
+selected (`null`/`null` = the implicit World view, where Country alone reads as the next-selectable
+`DIRECT_SUBLEVEL` tier). `DIRECT_SUBLEVEL` additionally requires genuine parentage (`areaParentId ==
+selection.selectedId`), not depth alone — an unrelated sibling region's own department never
+misreads as "direct sublevel of the selected region" just because both are one level below Country.
+Every rendered Country/Region/Department `Feature` (`CountryOverlayRendering.kt`,
+`AdministrativeOverlayRendering.kt`) is now tagged with this role (`GEOGRAPHIC_STYLE_ROLE_PROPERTY`),
+and the FillLayer/LineLayer paint properties read it via one shared `Expression.match` (built once at
+layer-creation time; a focus change only ever needs a fresh `FeatureCollection` with updated role
+tags, never a new layer). `DiscoveryMapView`'s visited-data `LaunchedEffect` is now additionally keyed
+on the current focus state (`adminFocusStack`/`countryFocusReturnCamera`), so a pure selection change
+(no new discovery) still re-colors. The basemap-aligned mainland-France border line
+(`applyBasemapAlignedFranceBorder`) has no per-feature source to tag (it sources from the basemap's
+own vector tiles), so its color is resolved once per call from the same `GeographicFocusSelection` and
+applied as a literal `lineColor`, exactly like its existing `visibility` property already was.
+Richer, more opaque starting palette per the physical review's reference image:
+`SELECTED = #FFA23A`, `DIRECT_SUBLEVEL = #C96A16`, `ANCESTOR_CONTEXT = #7A3D16` (fill opacity
+0.18 → 0.45, outline 0.55 → 0.85) — **`PRODUCT CALIBRATION REQUIRED`, starting values, not final art
+direction**, same status as every zoom-band constant already in this file. Discovered H3 cell
+rendering (Certified/Non-certified blue/amber) is deliberately **untouched** by this rework: the
+round's own instruction text described H3 as "its own distinct vivid discovery orange," which would
+mean discarding the already-validated Certified/Non-certified color distinction section 9's own
+"preserve existing validated work" list explicitly requires keeping — an unresolved tension between
+two instructions in the same round, resolved conservatively (preserve validated behavior) rather than
+silently picked either way. Flagged here as a genuine open question, not decided.
+
+**2. Ancestor-selection / camera-refocus fix.** Root cause of the physical camera bug: `resolveGeographicClick`'s eligibility table (`eligibleClickLevels`) never included `COUNTRY` as a
+reachable resolution once focus had moved to `ADMIN_1`/`ADMIN_2` — a tap on France while Region- or
+Department-focused simply never resolved to anything, at any zoom. Fixed:
+`eligibleClickLevels(ADMIN_1)` now tries `[ADMIN_2, ADMIN_1, COUNTRY]` (added the `COUNTRY` fallback)
+and `eligibleClickLevels(ADMIN_2)` now tries `[ADMIN_2, ADMIN_1, COUNTRY]` (added BOTH `ADMIN_1` and
+`COUNTRY` — selecting the parent Region directly from Department depth, without Back-ing out first, is
+also now possible). Ancestor levels are always tried **last**, after every more specific level, so a
+genuinely eligible descendant hit can never be shadowed by an ancestor fallback. Second, independent
+fix: the click handler used to call `enterOrKeepCountryFocus`/`enterOrKeepAdminFocus` inline per
+resolution branch, and the `CountryComponent` branch never cleared `adminFocusStack` — so even once
+Country became reachable, selecting it while a Region/Department was focused would leave a stale
+child frame behind. Replaced with one new pure decision function, `nextGeographicSelectionOutcome`
+(`AdministrativeAreaNavigation.kt`): given the resolved click and the current focus state, it returns
+the next `countryFocusReturnCamera`, the next `adminFocusStack` (always `emptyList()` for a
+`CountryComponent` resolution — ancestor selection now unconditionally clears descendant focus — and
+`nextAdminFocusStack`'s own already-validated collapse-to-one-frame behavior for a `Region`
+resolution), and the camera target bounds — applied unconditionally on every successful click,
+regardless of any manual pan/zoom beforehand. `DiscoveryMapView`'s three near-duplicate click branches
+collapsed into one `when`-free dispatch through this single function.
+
+**Round 4 tests (real, run via the manual toolchain — `feature-map`: 217/217 passed; `core-discovery-
+engine` untouched this round, 223/223 from Round 3 stands):** `eligibleClickLevels` tests updated for
+the new ancestor-fallback table; new `resolveGeographicClick` regression tests (Country reachable from
+Region and Department focus; Region reachable directly from Department focus; an ancestor fallback
+never shadows a genuinely eligible descendant hit); new `nextGeographicSelectionOutcome` tests
+covering all 7 of this round's required camera scenarios (World→France, France→Region, Region→
+Department, Department-focused-then-France-selected-with-admin-focus-cleared, Department-focused-
+then-parent-Region-selected-with-Department-cleared, Back still restores the exact stored camera —
+already covered by the existing `adminFocusBack` tests, and manual camera movement never overwrites an
+existing return camera). New `GeographicHierarchyStylingTest.kt`: pure, MapLibre-independent coverage
+of `resolveGeographicAreaStyleRole` for exactly the three required scenarios (France selected: Country
+SELECTED/Region DIRECT_SUBLEVEL; Region selected: Region SELECTED/Department DIRECT_SUBLEVEL/Country
+ANCESTOR_CONTEXT; Department selected: Department SELECTED/Region and Country both ANCESTOR_CONTEXT)
+plus parent-scoping and no-focus edge cases; `geographicAreaStyleRoleColorExpression()` itself is
+deliberately NOT unit-tested here — it calls `android.graphics.Color.parseColor`, a real Android
+framework method with a `Stub!`-throwing body on this manual toolchain's stub `android.jar` (confirmed
+empirically), consistent with this whole module's established pattern of keeping real Style/Layer/
+Color construction behind an untested seam rather than unit-testing it directly.
+
+**Not implemented this round:** final art direction / calibrated palette and opacity values (still
+provisional); discovered-H3 color scheme unchanged pending resolution of the H3-orange-vs-preserve-
+Certified-distinction tension flagged above; per-region/department zoom-band recalibration (out of
+scope, not requested); worldwide/deeper-hierarchy generalization beyond what Round 3 already scoped.
+**Physical validation must be re-run on the Samsung device before this round's fixes can be marked
+validated** — nothing here claims device confirmation, only manual-toolchain compilation and test
+evidence.
+
+#### Round 5 — physical validation PARTIAL PASS, one correction: Admin2 not immediately visible after Admin1 selection
+
+**Physical validation result for Round 4's own fixes: PARTIAL PASS.** Confirmed physically correct:
+World→France, France→Region, Region→Department (once the Department overlay is actually visible),
+ancestor selection after manual pan/zoom, descendant-focus clearing, and the relative orange hierarchy
+in principle. Palette remains deliberately uncalibrated pending the future basemap redesign (see
+`docs/ai-context/OPEN_QUESTIONS.md`'s "Final Map art direction" entry, extended this round with the
+specific future-basemap notes the physical test surfaced — darker/simpler basemap, discovered/
+selected areas popping, progressive label reveal, likely Dark/Light modes — **PLANNED / NOT
+IMPLEMENTED**, explicitly not designed or built this round). One real defect: after selecting
+Nouvelle-Aquitaine, Haute-Vienne (a visited Department) was not immediately visible — the camera
+correctly fit the Region, but the Department overlay only appeared after an extra manual zoom-in.
+
+**Root cause, verified against the real `Layer` API before changing anything** (`javap` against the
+actual bundled MapLibre `android-sdk-opengl` AAR's `Layer.class`): `ADMIN2_OVERLAY_MIN_ZOOM` (6f) is a
+single, generic, level-only zoom floor set once on the Department `FillLayer`/`LineLayer` at creation
+time and never revisited — MapLibre hides a layer entirely below its own `minZoom` (confirmed:
+`getMinZoom`/`setMinZoom` are ordinary, always-callable instance methods, not construction-only
+values). `CameraUpdateFactory.newLatLngBounds(nouvelleAquitaine.bounds, ...)`'s own resulting fit zoom
+— confirmed on the physical device — lands slightly below that floor for a Region the size of
+Nouvelle-Aquitaine, so the Department layer stayed invisible until the user's own manual zoom pushed
+past 6, even though the Region-fit camera had already landed exactly where Departments should already
+be visible. The zoom-fade opacity expression was ruled out as a cause: `Expression.interpolate`
+clamps to its first stop's value below that stop, so opacity was never the blocker — only the layer's
+own `minZoom` property was.
+
+**Fix: the Department layer's effective minimum zoom is now selection-relative, not a single
+constant.** New `effectiveAdmin2MinZoom(selection)` (`AdministrativeOverlayRendering.kt`): once an
+`ADMIN_1` (Region) — or its own `ADMIN_2` (Department) child, so the floor doesn't snap back up one
+level deeper — is the actually-selected level, the floor drops to `ADMIN1_OVERLAY_MIN_ZOOM` (Region's
+own render floor: a safe, non-arbitrary lower bound, not `0f`, since Departments can never usefully
+appear before their own parent Region does). Whenever `COUNTRY` is selected or nothing is selected at
+all (the World view), the ordinary `ADMIN2_OVERLAY_MIN_ZOOM` generic threshold is unchanged —
+Departments do NOT become visible just because France itself is selected, satisfying this round's own
+explicit "do not simply make Departments visible everywhere at World/Country scale" requirement.
+`applyAdministrativeOverlayLevel` now re-applies this effective floor on every call (`style
+.getLayerAs<FillLayer>(...)?.minZoom = minZoom`, mirroring `applyBasemapAlignedFranceBorder`'s own
+established "re-apply a literal property on every call" pattern), so a pure focus change (no new
+discovery data) still lowers/raises it — this reuses the exact same `DiscoveryMapView` `LaunchedEffect`
+that Round 4 already keyed on `adminFocusStack`/`countryFocusReturnCamera`, no new wiring needed.
+**Known, accepted limitation, documented rather than silently fixed**: this is a layer-level (not
+per-feature) zoom gate — a visited-but-unrelated Department elsewhere in France also becomes visible
+once any Region is selected, since `applyAdministrativeOverlay` still renders every visited Department
+in one shared source/layer pair (a pre-existing Round 0 scoping decision). Fixing that would need
+per-feature zoom gating, a materially larger change than this round's own physically-observed defect
+(Admin2 invisibility) calls for.
+
+**Round 5 tests (real, run via the manual toolchain — `feature-map`: 221/221 passed; `core-discovery-
+engine` untouched, 223/223 from Round 3 stands):** new tests in `AdministrativeOverlayRenderingTest.kt`
+covering exactly this round's required scenarios — Region (and Department) selected lowers the
+effective floor below the generic threshold and keeps it lowered one level deeper; Country selected
+does NOT lower it (no global Department visibility just because France is selected); no selection
+(World view) leaves the generic threshold untouched (no new clutter). All pre-existing tests preserved
+unchanged.
+
+**Not implemented this round:** per-feature (parent-scoped) Department visibility filtering (documented
+limitation above); palette/opacity calibration (explicitly deferred to the future basemap phase);
+final basemap redesign (documented as PLANNED / NOT IMPLEMENTED in `OPEN_QUESTIONS.md`, not built).
+**Physical validation must be re-run on the Samsung device before this specific fix is marked
+validated** — nothing here claims device confirmation beyond the manual-toolchain evidence above.
+
+#### Round 6 — Department-level derived first-discovery corridor, IMPLEMENTED, NOT PHYSICALLY VALIDATED
+
+**This entry describes the CORRECTED implementation after a Codex review (CHANGES REQUIRED) found the
+first implementation's evidence model insufficient and its own documentation overclaiming what the
+data actually supports.** The corrected model, terminology, and evidence requirements below are what
+is actually implemented; the original entry's own language ("connected by real chronology,"
+"credibly-travelled run," same-instant ties "treated as continuous") is retracted — see the correction
+notes inline below for exactly what changed and why.
+
+**Data-model investigation (unchanged from the original round, still holds):** No ordered, timestamped,
+per-fix sequence of coordinates is persisted anywhere in this app — raw GPS is deliberately transient by
+design (`docs/ai-context/REJECTED_APPROACHES.md`'s "Persistent raw GPS history" entry: rejected for
+privacy exposure; the only Room table, `discovered_cells`, "Never stores a raw latitude/longitude").
+**No new persistence was added, this round or the correction round** — nothing here reopens the
+rejected raw-GPS-history decision. The one real, already-persisted ordering signal is
+`DiscoveredCell.firstDiscoveredAt` — genuinely coarse (cell-level, not GPS-fix-level), which the
+correction round now takes far more seriously than the original implementation did (see below).
+
+**What the corridor explicitly is NOT (the corrected, authoritative framing — see
+`DiscoveredRoute.kt`'s own file-level doc comment for the full list):** not a GPS breadcrumb trail; not
+the exact road/path travelled (every point is an H3 resolution-12 cell center, ~9-19 m across, never a
+raw coordinate); not the complete journey (only *first discovery* is represented — a later revisit of
+an already-known cell leaves no trace, so a corridor gap can mean "already discovered earlier," not
+"never visited"); not proof that every connector was physically traversed. Preferred terminology:
+**"derived first-discovery corridor"** or **"approximate first-discovery progression"** — never "travel
+route," never "the route travelled."
+
+**Correction 1 — same-timestamp cells (BLOCKING, fixed).** The original implementation treated a
+same-instant tie between two distinct cells as automatically continuous, relying on the
+`h3Index`-based sort tie-break as if it carried chronological meaning — it does not; batch-processed
+cells commonly share an identical timestamp with genuinely unknown internal order. Fixed: a connection
+now requires `dt` (the time gap) to be **strictly positive** — `dt <= 0` (a tie, or, defensively, a
+negative gap) is rejected unconditionally, before any distance/structural check ever runs. New
+adversarial tests (`DiscoveredRouteTest.kt`, letters B/C/D) prove three same-timestamp real H3
+grid-neighbor cells produce **no** connected path in any input order, and that a same-timestamp pair a
+huge distance apart is never connected either.
+
+**Correction 2 — duplicate H3 identities (fixed).** `DiscoveredCellRepository`'s own persistence
+identity is `(cell, trustStatus)` (see `DiscoveredCell`'s own doc comment) — the same physical H3 cell
+can legitimately exist as both a `CERTIFIED` and a `NON_CERTIFIED` row. New
+`consolidateBySpatialCell(discoveredCells)`: groups by the real `CanonicalCell` identity and collapses
+every trust-status row for the same cell into one `(cell, timestamp)` pair, using the **earliest**
+`firstDiscoveredAt` across all of that cell's own rows — documented as the deliberate conservative rule
+("the cell was genuinely first reached, under *some* trust status, at that earlier time"). Never alters
+any persisted `DiscoveredCell` row (letter H tests).
+
+**Correction 3 — structural spatial continuity (IMPORTANT, fixed).** Time and implied average speed
+alone are never sufficient evidence two first-discovered cells should be connected: a cell physically
+crossed *between* two later first-discoveries, but itself already discovered on an earlier pass (a
+genuine revisit), is invisible to `firstDiscoveredAt` chronology, and the old model would still draw a
+corridor across that gap purely from plausible timing. Fixed: every candidate connection now also
+requires real H3 grid-adjacency evidence via the existing `H3GridTraversal.pathBetween` (already used
+by `ForegroundReconstructionScheduler`'s dormant reconstruction infrastructure, reused here rather than
+duplicated) — `path.size - 1` (the real grid distance) must be at most
+`ROUTE_MAX_GRID_DISTANCE_CALIBRATION_REQUIRED` (provisional `2`: direct neighbors, plus tolerance for
+exactly one GPS-sampling-skipped cell, per `docs/ai-context/LOCATION_TRACKING.md`'s own Trip 3/4 field
+cadence data — **not** chosen "to make the visualization prettier"). Time-gap (`maxGap`, unchanged 20
+min) and implied-speed (`maxPlausibleSpeedMetersPerSecond`, unchanged 55 m/s) checks are retained
+**only as additional rejection guards**, never described as proving continuity, and are checked after
+the (cheaper) time-gap check but the speed check is computed only once `dt` is already known bounded,
+making its own millisecond conversion overflow-safe by construction. `AndroidH3GridTraversal` is now
+constructed **unconditionally** in `AppContainer` (previously only debug-gated for
+`ForegroundTransitionDiagnostics`) — the corridor's own structural check needs it in every build. Real
+H3 fixtures (not invented) prove: real grid-neighbors connect (letter A); a real distance-2 pair
+connects (the default tolerance boundary); a real distance-3 pair does not; a temporally- and
+speed-plausible but structurally-distant real pair (grid distance 116) is still rejected (letter G — the
+core proof that time+speed alone is insufficient); a revisit scenario (letter I) proves an old,
+already-known cell's timestamp never bridges two later, structurally-unrelated new discoveries.
+
+**Correction 4 — Department containment for the connecting chord, not just its endpoints (fixed).**
+The original `clipRouteSegmentsToArea` only checked each individual point's own containment
+(point-run filtering) — Codex correctly flagged that two points can each individually be inside a
+concave Department, or inside on either side of a hole, while the straight chord connecting them
+briefly leaves the polygon or crosses the hole. Fixed: the connecting chord between two already-kept
+points is now independently sampled at 3 interior fractions (25/50/75%), and every sample must also
+test inside the Department's geometry before the connection is kept — a conservative approximation
+(**not** true Sutherland–Hodgman line/polygon clipping, a documented, deliberate scoping decision), but
+strictly more conservative than endpoint-only containment. New tests (letters K/L) prove a concave
+"crescent" Department and a Department with a hole both correctly reject a chord that would otherwise
+cross outside/through them, while a genuinely-interior chord is still accepted.
+
+**Correction 5 — node/line volume bounds (fixed).** The original per-segment node sampling
+(`sampleRouteNodes`, unchanged) reduced density but never bounded the *total* across many segments.
+New `sampleRouteNodesBounded(segments, maxTotalNodes)` (provisional
+`ROUTE_MAX_NODES_PER_OVERLAY_CALIBRATION_REQUIRED = 250`) applies one further deterministic
+uniform-stride reduction across the combined node set only if still over budget — a hard, absolute cap
+regardless of first-discovery history size (letter N tests). Symmetrically, a very long single
+`RouteSegment`'s own `LineString` point count is now bounded at the rendering layer only (never the
+domain `RouteSegment` itself) via new `simplifyRouteSegmentForRendering(segment, maxPoints)`
+(provisional `ROUTE_MAX_LINE_POINTS_PER_SEGMENT_CALIBRATION_REQUIRED = 500`, same uniform-stride
+technique, documented as a conservative approximation rather than shape-preserving Douglas-Peucker
+simplification).
+
+**Architecture (`DiscoveredRoute.kt`, `core-discovery-engine`, pure domain logic, no MapLibre
+dependency)**: `RoutePoint`/`RouteSegment` (constructor-enforced `>= 2` points) unchanged;
+`consolidateBySpatialCell` (new, Correction 2); `deriveRouteSegments(discoveredCells, cellConverter,
+gridTraversal, maxGap, maxGridDistance, maxPlausibleSpeedMetersPerSecond)` (now requires
+`H3GridTraversal`, Correction 3, and rejects non-positive `dt` unconditionally, Correction 1);
+`clipRouteSegmentsToArea(segments, area)` (chord-sampling, Correction 4); `sampleRouteNodes`/
+`sampleRouteNodesBounded`/`simplifyRouteSegmentForRendering` (Correction 5). `MapReadState.routeSegments`
+/ `ObserveMapReadState` (now takes `gridTraversal` too) unchanged in shape: globally-derived, not yet
+Department-clipped, computed fresh from the same validated `validCells` snapshot every other field uses,
+never persisted as a second discovery truth.
+
+**Rendering** (`RouteOverlayRendering.kt`, `feature-map`) — layering, z-order, no-`minZoom`-gate
+rationale, and read-only click-avoidance are unchanged from the original round (verified via `javap`
+against the real `Style` class); `routeCoreFeatureCollection` now applies
+`simplifyRouteSegmentForRendering` per segment before conversion, and `routeNodeFeatureCollection` now
+calls `sampleRouteNodesBounded` (overlay-wide) instead of per-segment-only sampling.
+
+**Provisional palette** (**PRODUCT CALIBRATION REQUIRED**, unchanged starting values): core `#2F9BFF`
+(~2-3px, opacity 0.85), halo same hue (~6-9px, opacity 0.22), nodes `#2F9BFF` with a white stroke
+(~3-5px radius, opacity 0.9). Orange remains hierarchy/discovery-area language; blue is reserved
+exclusively for this corridor visualization.
+
+**Certification**: unchanged — not fabricated. No sound Certified/Non-certified → corridor-segment
+color mapping exists yet; every segment renders in the same single provisional blue regardless of trust
+status, an explicit open product question. Existing H3 Certified/Non-certified rendering untouched.
+
+**Performance**: unchanged principle (no expensive recomputation on camera movement, only on
+data/selection change), now additionally hard-bounded (Correction 5) rather than only density-reduced.
+
+**Round 6 correction-round tests (real, run via the manual toolchain — `core-discovery-engine`:
+257/257 passed; `feature-map`: 229/229 passed):** `DiscoveredRouteTest.kt` rewritten with real H3
+fixtures (captured via `H3Core.gridDisk`/`gridDistance`/`cellToLatLng`, the same discipline
+`H3JavaGridTraversalTest` already established) covering the full adversarial letter list this
+correction round requires: A (real neighbors connect; distance-2 tolerance boundary connects,
+distance-3 does not), B/C (same-timestamp ties never connect, in any input order, regardless of
+distance), D (zero/negative `dt` never connects), E (large time gap splits), F (implausible speed
+rejects even a real structurally-adjacent pair), G (a temporally-and-speed-plausible but
+structurally-distant real pair — grid distance 116 — is still rejected, the core structural-continuity
+proof), H (duplicate H3 identity across Certified/Non-certified consolidates to one point, earliest
+timestamp), I (a revisit scenario proves an old cell's timestamp never bridges two structurally-
+unrelated later discoveries), J (inside/outside/inside splits correctly), K/L (a concave Department and
+a Department with a hole both reject a chord that would cross outside/through, while a genuinely
+interior chord is accepted), M (empty/single-cell/degenerate-`RouteSegment` all fail safe), N (node and
+line-point counts are both hard-bounded, proven to actually engage for large inputs), O (extreme
+`Instant.MIN`/`MAX` timestamps never crash derivation). Extended `RouteOverlayRenderingTest.kt` (node
+and line-point bounds proven at the actual rendering-conversion layer) and `ObserveMapReadStateTest.kt`
+(wiring now includes a fake `H3GridTraversal`; the Haute-Vienne urban-to-rural wiring test is now
+explicit that adjacency is faked for wiring purposes, real H3 topology being
+`DiscoveredRouteTest.kt`'s own job).
+
+**Documentation**: this `PROJECT_STATUS.md` entry rewritten in place (see the retraction note at the
+top); `docs/ai-context/UX_UI_SPEC.md`'s Map section corrected to "derived first-discovery corridor"
+terminology throughout, with the same explicit "what this is NOT" list; the future dark/light basemap
+direction remains PLANNED / NOT IMPLEMENTED, carried in `OPEN_QUESTIONS.md`.
+
+**Not implemented this round:** true Sutherland–Hodgman polygon/line geometric clipping at the
+Department border (chord-sampling only, a documented, deliberate conservative approximation);
+Region-level corridor preview (deliberately out of scope, Department-only); corridor-segment
+Certified/Non-certified styling (open question); gap/speed/grid-distance/sampling/budget calibration
+against real field data (all remain provisional starting values); shape-preserving line simplification
+(uniform-stride only); the future dark/light basemap itself.
+
+**Future true journey/location-history architecture — explicitly NOT implemented, a separate future
+question from this corridor.** If World Discovery later wants to show "the actual route you travelled"
+with GPS-level fidelity, that requires a genuinely new, privacy-conscious, explicitly-designed ordered
+location-history representation — a real product/privacy architecture decision (reopening, deliberately
+and explicitly, what `REJECTED_APPROACHES.md`'s "Persistent raw GPS history" entry currently forecloses
+by default), which must remain architecturally separate from canonical H3 discovery truth the same way
+this corridor already does. Status: **ENGINEERING DESIGN REQUIRED / NOT IMPLEMENTED** — not started,
+not scoped, not decided this round or any prior round.
+
+**Physical validation status: still NOT PHYSICALLY VALIDATED, and explicitly not ready to be marked
+validated until a further Codex re-review of this correction confirms the fixes above are sufficient**
+— the primary real-world target (a Haute-Vienne urban-to-rural validation route) requires a Samsung
+device test only after that re-review; nothing here claims device confirmation beyond the
+manual-toolchain compilation/test evidence above.
+
+##### Round 6 micro-fix — unsafe rendering "simplification" replaced with safe chunking (BLOCKING, fixed)
+
+Codex's second review of Round 6 accepted every correction above (same-timestamp safety, duplicate H3
+consolidation, structural continuity, time/speed guards, Department containment, corridor semantics,
+certification, app wiring) but found one remaining blocking defect: the rendering-volume control for
+very long segments, `simplifyRouteSegmentForRendering`, reduced a validated segment's point count by
+uniform-stride **dropping intermediate vertices**, then let MapLibre draw a straight edge between
+whichever points survived. That silently manufactured brand-new chords (`P0 -> P4 -> P8 -> ...`) that
+had **never themselves passed** `deriveRouteSegments`'s own H3-grid-adjacency/time/speed evidence
+checks — exactly the class of unvalidated connector this whole feature otherwise refuses to draw, for
+the sole reason of keeping a single `LineString` small.
+
+**Fix: replaced with deterministic CHUNKING, never vertex dropping.** New
+`chunkRouteSegmentForRendering(segment, maxPointsPerChunk)` (`DiscoveredRoute.kt`) splits an
+over-long, already-validated `RouteSegment` into multiple smaller `RouteSegment`s, where **consecutive
+chunks share their boundary point exactly** (chunk *N*'s own last point equals chunk *N+1*'s own first
+point). No point is ever skipped, reordered, or connected to a non-adjacent point — every edge any
+chunk ever renders is a genuine, already-validated original edge from the segment's own real sequence.
+The domain `RouteSegment` passed in is never mutated. `simplifyRouteSegmentForRendering` is removed
+entirely, not merely deprecated. `RouteOverlayRendering.kt`'s `routeCoreFeatureCollection` now calls
+`segments.flatMap { chunkRouteSegmentForRendering(it) }`, so one long segment can produce multiple
+`LineString` `Feature`s from the same shared `GeoJsonSource` — halo and core both read that same
+source, so they render identical chunk geometry by construction, with no second, independently-derived
+conversion path either could diverge from. Node sampling (`sampleRouteNodesBounded`, the previously-
+accepted 250 cap) is untouched and, by construction, safe from this same class of bug: dropping a
+*node marker* never manufactures a false edge the way dropping a *line vertex* does, since a marker is
+a single rendered point, not a chord between two points — documented explicitly in
+`uniformStrideDownsample`'s own doc comment, which now states it is used only for nodes, never for
+line geometry.
+
+**Tests (real, run via the manual toolchain — `core-discovery-engine`: 267/267 passed; `feature-map`:
+232/232 passed):** `DiscoveredRouteTest.kt`'s simplification tests replaced with an adversarial
+**750-point zigzag fixture** (never a straight line, so a "skip points and connect what's left" bug
+would produce a visibly different, checkable edge set) proving: every output chunk respects the
+maximum point count; every consecutive pair in every rendered chunk was genuinely consecutive in the
+original segment (no synthetic adjacency); successive chunks overlap exactly at the boundary point;
+the complete original edge sequence is represented exactly once, in order, across all chunks; chunking
+never mutates the input `RouteSegment`; a small segment stays exactly one chunk; exact-boundary cases
+(`maxPoints - 1`, `maxPoints`, `maxPoints + 1`, and a substantially larger 2137-point segment) all
+preserve every original edge with correct overlap. `RouteOverlayRenderingTest.kt` extended to prove
+the same at the `Feature`/`FeatureCollection` conversion layer (multiple `LineString` Features for one
+long segment, each within budget; boundary coordinates match exactly between successive chunk
+Features; no rendered coordinate pair was ever non-consecutive in the original segment; the shared
+`routeCoreFeatureCollection` conversion is deterministic, proving halo and core can never diverge).
+
+**Documentation**: `DiscoveredRoute.kt`/`RouteOverlayRendering.kt` doc comments rewritten to describe
+chunking, not "conservative simplification" or "a purely visual operation that cannot affect
+geometry" — the whole point of this fix is that the earlier framing was false: dropping vertices
+*does* affect rendered geometry, by creating new edges. This `PROJECT_STATUS.md` entry documents the
+fix in place rather than leaving the earlier "uniform-stride point dropping... sufficient to bound
+worst-case rendering cost" framing standing uncorrected.
+
+**Not implemented this round:** shape-preserving (Douglas-Peucker-style) line simplification remains
+explicitly future work — if a future round needs it for visual fidelity reasons, any replacement chord
+it would introduce requires its own independent geometric/continuity revalidation, never assumed safe
+by default the way this round's fix explicitly avoided assuming.
+
+**Physical validation status: still NOT PHYSICALLY VALIDATED** — remains blocked on a further Codex
+re-review of this micro-fix before any Samsung device test is warranted.
 
 ## 18. Constraints for Codex / Claude Code
 

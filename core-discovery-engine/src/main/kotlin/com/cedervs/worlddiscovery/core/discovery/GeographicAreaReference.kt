@@ -27,6 +27,12 @@ internal data class GeographicAreaReferenceJson(
     val license: String,
     /** MultiPolygon -> Polygon -> Ring -> [longitude, latitude]. */
     val polygons: List<List<List<List<Double>>>>,
+    /** [GeographicArea.parentId] — absent/`null` for a top-level area (a country), e.g. `"country:FR"`
+     * for an `ADMIN_1` region. Optional and defaulted so every existing bundled artifact written
+     * before this field existed (`france-reference.json`, which has no parent) still parses
+     * unchanged. See `GeographicArea.kt`'s own doc comment for why this is a single optional link,
+     * not a required/typed chain. */
+    val parentId: String? = null,
 )
 
 /**
@@ -60,7 +66,22 @@ internal fun parseGeographicAreaReference(json: String): GeographicArea {
         sourceId = parsed.sourceId,
         sourceVersion = parsed.sourceVersion,
         sourceProvenance = GeographicAreaProvenance.valueOf(parsed.sourceProvenance),
+        parentId = parsed.parentId,
     )
+}
+
+/**
+ * Loads and parses a bundled [GeographicAreaReferenceJson] resource from an arbitrary classpath
+ * path — the generic counterpart to [loadFranceGeographicAreaReference] (which hard-codes the
+ * single country-level path). Used by France's `ADMIN_1`/`ADMIN_2` loader
+ * (`FranceAdministrativeAreas.kt`) to load each of its many small, individually-generated region/
+ * department artifacts through the exact same parser, never a duplicated one.
+ */
+internal fun loadGeographicAreaReference(resourcePath: String): GeographicArea {
+    val resourceStream = object {}.javaClass.getResourceAsStream(resourcePath)
+        ?: error("$resourcePath resource not found on the classpath")
+    val json = resourceStream.use { it.readBytes().toString(Charsets.UTF_8) }
+    return parseGeographicAreaReference(json)
 }
 
 /**
