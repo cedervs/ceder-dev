@@ -2,8 +2,8 @@
 <!--
   Android 12+ (API 31+) backup/transfer exclusion rules — see TrajectoryBufferDatabase's own doc
   comment (:core-database) for the full reasoning. Only the trajectory-reconstruction buffer
-  (raw, short-lived GPS coordinates -- an explicit, bounded, documented exception to this app's
-  "never persist raw GPS" default -- see docs/ai-context/LOCATION_TRACKING.md) is excluded here.
+  (raw, short-lived GPS coordinates — an explicit, bounded, documented exception to this app's
+  "never persist raw GPS" default — see docs/ai-context/LOCATION_TRACKING.md) is excluded here.
   world_discovery.db (discovered_cells, the canonical discovery history) is deliberately left
   eligible for backup, unchanged from this app's existing behavior before this file existed.
 

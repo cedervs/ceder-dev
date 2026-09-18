@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Pre-Android-12 (API 26-30) equivalent of data_extraction_rules.xml -- android:fullBackupContent
+  Pre-Android-12 (API 26-30) equivalent of data_extraction_rules.xml — android:fullBackupContent
   is still consulted on those API levels even though android:dataExtractionRules (API 31+) is now
   the primary mechanism. Keep both files in sync; see data_extraction_rules.xml's own comment for
   the full reasoning.
