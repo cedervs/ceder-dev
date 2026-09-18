@@ -4,6 +4,7 @@ import com.cedervs.worlddiscovery.core.discovery.Coordinate
 import com.cedervs.worlddiscovery.core.discovery.GeographicArea
 import com.cedervs.worlddiscovery.core.discovery.GeographicAreaProvenance
 import com.cedervs.worlddiscovery.core.discovery.GeographicAreaType
+import com.cedervs.worlddiscovery.core.discovery.GeographicAreaVisitedStatus
 import com.cedervs.worlddiscovery.core.discovery.GeographicMultiPolygon
 import com.cedervs.worlddiscovery.core.discovery.GeographicPolygon
 import com.cedervs.worlddiscovery.core.discovery.computeGeographicBounds
@@ -31,6 +32,12 @@ class AdministrativeOverlayRenderingTest {
         )
     }
 
+    private fun visited(area: GeographicArea): GeographicAreaVisitedStatus =
+        GeographicAreaVisitedStatus(area, visited = true, certifiedPresent = false, nonCertifiedPresent = true)
+
+    private fun unvisited(area: GeographicArea): GeographicAreaVisitedStatus =
+        GeographicAreaVisitedStatus(area, visited = false, certifiedPresent = false, nonCertifiedPresent = false)
+
     private val singlePolygonRegion = testArea(
         "admin1:FR-NAQ",
         GeographicAreaType.ADMIN_1,
@@ -53,15 +60,15 @@ class AdministrativeOverlayRenderingTest {
     )
 
     @Test
-    fun `administrativeOverlayFeatureCollection is empty when no area is visited`() {
-        val collection = administrativeOverlayFeatureCollection(visitedAreas = emptyList())
+    fun `administrativeOverlayFeatureCollection is empty when there are no candidate areas`() {
+        val collection = administrativeOverlayFeatureCollection(areaStatuses = emptyList())
 
         assertTrue(collection.features()!!.isEmpty())
     }
 
     @Test
-    fun `one Feature per visited area, tagged with its own real areaId`() {
-        val collection = administrativeOverlayFeatureCollection(listOf(singlePolygonRegion, multiPolygonRegion))
+    fun `one Feature per candidate area, tagged with its own real areaId`() {
+        val collection = administrativeOverlayFeatureCollection(listOf(visited(singlePolygonRegion), visited(multiPolygonRegion)))
 
         val features = collection.features()!!
         assertEquals(2, features.size)
@@ -71,11 +78,45 @@ class AdministrativeOverlayRenderingTest {
 
     @Test
     fun `a multi-component area (real coastal islands) renders as ONE Feature, never decomposed per-component`() {
-        val collection = administrativeOverlayFeatureCollection(listOf(multiPolygonRegion))
+        val collection = administrativeOverlayFeatureCollection(listOf(visited(multiPolygonRegion)))
 
         val features = collection.features()!!
         assertEquals(1, features.size)
         assertEquals("admin1:FR-BRE", features.single().getStringProperty(ADMIN_OVERLAY_AREA_ID_PROPERTY))
+    }
+
+    // ==========================================================================================
+    // FH-1 runtime hierarchy fix: administrative existence and discovery presence are different
+    // concepts -- an unvisited candidate is still rendered (tagged so it can be styled neutrally,
+    // never as if it were visited), never silently dropped the way this file used to filter before
+    // this fix.
+    // ==========================================================================================
+
+    @Test
+    fun `an unvisited candidate area is still rendered as a Feature -- existence does not require visited state`() {
+        val collection = administrativeOverlayFeatureCollection(listOf(unvisited(singlePolygonRegion)))
+
+        val features = collection.features()!!
+        assertEquals(1, features.size)
+        assertEquals("admin1:FR-NAQ", features.single().getStringProperty(ADMIN_OVERLAY_AREA_ID_PROPERTY))
+    }
+
+    @Test
+    fun `every rendered Feature carries an explicit visited property matching its own real status`() {
+        val collection = administrativeOverlayFeatureCollection(listOf(visited(singlePolygonRegion), unvisited(multiPolygonRegion)))
+
+        val features = collection.features()!!
+        val visitedFeature = features.single { it.getStringProperty(ADMIN_OVERLAY_AREA_ID_PROPERTY) == singlePolygonRegion.id }
+        val unvisitedFeature = features.single { it.getStringProperty(ADMIN_OVERLAY_AREA_ID_PROPERTY) == multiPolygonRegion.id }
+        assertEquals("true", visitedFeature.getStringProperty(ADMIN_OVERLAY_VISITED_PROPERTY))
+        assertEquals("false", unvisitedFeature.getStringProperty(ADMIN_OVERLAY_VISITED_PROPERTY))
+    }
+
+    @Test
+    fun `a mix of visited and unvisited candidates for the same region set are both present and independently distinguishable`() {
+        val collection = administrativeOverlayFeatureCollection(listOf(visited(singlePolygonRegion), unvisited(multiPolygonRegion)))
+
+        assertEquals(2, collection.features()!!.size)
     }
 
     @Test
@@ -104,7 +145,7 @@ class AdministrativeOverlayRenderingTest {
         // Country (depth 1) is the implicit World selection's own direct sublevel; a Region (depth 2)
         // is two steps away and falls into the same de-emphasized tier as any other non-adjacent
         // level -- see GeographicHierarchyStylingTest's own equivalent case for the exhaustive proof.
-        val collection = administrativeOverlayFeatureCollection(listOf(singlePolygonRegion))
+        val collection = administrativeOverlayFeatureCollection(listOf(visited(singlePolygonRegion)))
 
         assertEquals(
             GeographicAreaStyleRole.ANCESTOR_CONTEXT.name,
@@ -116,7 +157,7 @@ class AdministrativeOverlayRenderingTest {
     fun `a region matching the current selection is tagged SELECTED`() {
         val selection = GeographicFocusSelection(GeographicAreaType.ADMIN_1, singlePolygonRegion.id)
 
-        val collection = administrativeOverlayFeatureCollection(listOf(singlePolygonRegion), selection)
+        val collection = administrativeOverlayFeatureCollection(listOf(visited(singlePolygonRegion)), selection)
 
         assertEquals(
             GeographicAreaStyleRole.SELECTED.name,
@@ -128,10 +169,21 @@ class AdministrativeOverlayRenderingTest {
     fun `a region that is an ancestor's unrelated sibling is tagged ANCESTOR_CONTEXT, never SELECTED or DIRECT_SUBLEVEL`() {
         val selection = GeographicFocusSelection(GeographicAreaType.ADMIN_1, multiPolygonRegion.id)
 
-        val collection = administrativeOverlayFeatureCollection(listOf(singlePolygonRegion, multiPolygonRegion), selection)
+        val collection = administrativeOverlayFeatureCollection(listOf(visited(singlePolygonRegion), visited(multiPolygonRegion)), selection)
 
         val singlePolygonFeature = collection.features()!!.single { it.getStringProperty(ADMIN_OVERLAY_AREA_ID_PROPERTY) == singlePolygonRegion.id }
         assertEquals(GeographicAreaStyleRole.ANCESTOR_CONTEXT.name, singlePolygonFeature.getStringProperty(GEOGRAPHIC_STYLE_ROLE_PROPERTY))
+    }
+
+    @Test
+    fun `styleRole and visited are independent tags -- an unvisited SELECTED area is still tagged SELECTED, just with visited=false`() {
+        val selection = GeographicFocusSelection(GeographicAreaType.ADMIN_1, singlePolygonRegion.id)
+
+        val collection = administrativeOverlayFeatureCollection(listOf(unvisited(singlePolygonRegion)), selection)
+
+        val feature = collection.features()!!.single()
+        assertEquals(GeographicAreaStyleRole.SELECTED.name, feature.getStringProperty(GEOGRAPHIC_STYLE_ROLE_PROPERTY))
+        assertEquals("false", feature.getStringProperty(ADMIN_OVERLAY_VISITED_PROPERTY))
     }
 
     // ==========================================================================================
@@ -175,5 +227,86 @@ class AdministrativeOverlayRenderingTest {
     @Test
     fun `no selection -- World view -- the generic Department threshold applies unchanged, no new clutter`() {
         assertEquals(ADMIN2_OVERLAY_MIN_ZOOM, effectiveAdmin2MinZoom(GeographicFocusSelection.NONE))
+    }
+
+    // ==========================================================================================
+    // FH-1 runtime hierarchy fix -- administrativeRenderCandidates: the PARENT-SCOPED render
+    // candidate decision DiscoveryMapView delegates to. Covers the physically-observed defect's own
+    // required regression list: Regions always exposed regardless of visited state (A), a focused
+    // Region exposes all its own children regardless of visited state (B), and Departments never
+    // render all-96-at-once when only one Region is focused (H).
+    // ==========================================================================================
+
+    private val regionA = testArea("admin1:FR-A", GeographicAreaType.ADMIN_1, "country:FR", listOf(GeographicPolygon(listOf(ring(0.0 to 44.0, 1.0 to 44.0, 1.0 to 45.0, 0.0 to 45.0)))))
+    private val regionB = testArea("admin1:FR-B", GeographicAreaType.ADMIN_1, "country:FR", listOf(GeographicPolygon(listOf(ring(2.0 to 44.0, 3.0 to 44.0, 3.0 to 45.0, 2.0 to 45.0)))))
+    private val visitedDeptInA = testArea("admin2:FR-A1", GeographicAreaType.ADMIN_2, regionA.id, listOf(GeographicPolygon(listOf(ring(0.1 to 44.1, 0.2 to 44.1, 0.2 to 44.2, 0.1 to 44.2)))))
+    private val unvisitedDeptInA = testArea("admin2:FR-A2", GeographicAreaType.ADMIN_2, regionA.id, listOf(GeographicPolygon(listOf(ring(0.3 to 44.1, 0.4 to 44.1, 0.4 to 44.2, 0.3 to 44.2)))))
+    private val deptInB = testArea("admin2:FR-B1", GeographicAreaType.ADMIN_2, regionB.id, listOf(GeographicPolygon(listOf(ring(2.1 to 44.1, 2.2 to 44.1, 2.2 to 44.2, 2.1 to 44.2)))))
+
+    @Test
+    fun `A -- France (no Region focused) -- every loaded Region is a render candidate regardless of visited state`() {
+        val candidates = administrativeRenderCandidates(
+            admin1Statuses = listOf(visited(regionA), unvisited(regionB)),
+            admin2Statuses = listOf(visited(visitedDeptInA), unvisited(unvisitedDeptInA), unvisited(deptInB)),
+            focusedAdmin1Id = null,
+        )
+
+        assertEquals(setOf(regionA.id, regionB.id), candidates.regions.map { it.area.id }.toSet())
+    }
+
+    @Test
+    fun `A -- no Region focused -- Department candidates are empty -- France selection does not expose Departments`() {
+        val candidates = administrativeRenderCandidates(
+            admin1Statuses = listOf(visited(regionA)),
+            admin2Statuses = listOf(visited(visitedDeptInA), unvisited(unvisitedDeptInA)),
+            focusedAdmin1Id = null,
+        )
+
+        assertTrue(candidates.departments.isEmpty())
+    }
+
+    @Test
+    fun `B -- Region A focused -- exposes ALL of Region A's own Department children, visited and unvisited alike`() {
+        val candidates = administrativeRenderCandidates(
+            admin1Statuses = listOf(visited(regionA), unvisited(regionB)),
+            admin2Statuses = listOf(visited(visitedDeptInA), unvisited(unvisitedDeptInA), unvisited(deptInB)),
+            focusedAdmin1Id = regionA.id,
+        )
+
+        assertEquals(setOf(visitedDeptInA.id, unvisitedDeptInA.id), candidates.departments.map { it.area.id }.toSet())
+    }
+
+    @Test
+    fun `B -- Region A focused -- still exposes all 13-equivalent Regions unconditionally, same as no focus`() {
+        val candidates = administrativeRenderCandidates(
+            admin1Statuses = listOf(visited(regionA), unvisited(regionB)),
+            admin2Statuses = emptyList(),
+            focusedAdmin1Id = regionA.id,
+        )
+
+        assertEquals(setOf(regionA.id, regionB.id), candidates.regions.map { it.area.id }.toSet())
+    }
+
+    @Test
+    fun `C -- an unvisited Department candidate keeps its own real visited=false status, never silently promoted`() {
+        val candidates = administrativeRenderCandidates(
+            admin1Statuses = listOf(visited(regionA)),
+            admin2Statuses = listOf(unvisited(unvisitedDeptInA)),
+            focusedAdmin1Id = regionA.id,
+        )
+
+        assertEquals(false, candidates.departments.single().visited)
+    }
+
+    @Test
+    fun `H -- Region A focused -- Region B's own Department never leaks into the render candidate set -- never all Departments at once`() {
+        val candidates = administrativeRenderCandidates(
+            admin1Statuses = listOf(visited(regionA), visited(regionB)),
+            admin2Statuses = listOf(visited(visitedDeptInA), unvisited(unvisitedDeptInA), visited(deptInB)),
+            focusedAdmin1Id = regionA.id,
+        )
+
+        assertTrue("Region B's own Department must never appear while Region A is focused", candidates.departments.none { it.area.id == deptInB.id })
+        assertEquals(2, candidates.departments.size)
     }
 }

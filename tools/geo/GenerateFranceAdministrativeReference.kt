@@ -1,5 +1,8 @@
 import com.cedervs.worlddiscovery.core.discovery.GeographicAreaReferenceJson
 import java.io.File
+import java.time.Clock
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlinx.serialization.json.Json
@@ -57,6 +60,15 @@ private typealias RawPolygon = List<RawRing>
  * Components ARE still sorted by area descending before being written (largest first) — a
  * consistent, deterministic artifact contract (mirroring `GenerateFranceReference.kt`'s own
  * ordering rule), even though nothing this round's rendering/navigation reads depends on the order.
+ *
+ * **Provenance calendar-date domain: `Europe/Paris`, always — see [PROVENANCE_ZONE] and
+ * [currentGenerationDate].** This is a France-specific generator; every calendar date it writes
+ * (`generatedAt`, and the retrieval date conventionally embedded in a caller-supplied
+ * `sourceVersionNote`) is defined to mean "the France/Europe/Paris calendar day," never "whatever
+ * day the machine that happened to run this generator was in." A `sourceVersionNote`'s own
+ * "retrieved <date>" text is written by the operator following the same convention -- this
+ * generator does not parse or validate that text, but the convention is what makes it and
+ * `generatedAt` comparable at all.
  */
 fun main(args: Array<String>) {
     require(args.size == 7) {
@@ -72,6 +84,45 @@ fun main(args: Array<String>) {
     val sourceVersionNote = args[5]
     val outputFile = File(args[6])
 
+    val reference = buildGeographicAreaReference(
+        sourceFile = sourceFile,
+        id = id,
+        type = type,
+        displayName = displayName,
+        parentId = parentId,
+        sourceVersionNote = sourceVersionNote,
+    )
+
+    outputFile.parentFile?.mkdirs()
+    outputFile.writeText(Json.encodeToString(GeographicAreaReferenceJson.serializer(), reference))
+
+    println("Wrote ${outputFile.absolutePath} (${outputFile.length()} bytes)")
+    println(
+        "id=$id type=$type parentId=$parentId components=${reference.polygons.size} " +
+            "totalVertices=${reference.polygons.sumOf { poly -> poly.sumOf { ring -> ring.size } }}",
+    )
+}
+
+/**
+ * The real generation pipeline (parse -> drop structural noise -> simplify -> drop post-
+ * simplification collapses -> build the artifact), extracted out of [main] so it can be exercised
+ * directly against a controlled, local, non-network [sourceFile] -- see
+ * `GenerateFranceAdministrativeReferenceProvenanceTest.kt`'s production-artifact-path test, which
+ * proves the artifact's own `generatedAt` genuinely comes from [currentGenerationDate] rather than
+ * merely asserting the helper works in isolation (a helper-only test would keep passing even if
+ * [main] stopped calling it). [clock] defaults to the real system clock and is threaded straight
+ * through to [currentGenerationDate] -- this function never reads the wall clock itself, so a test
+ * needs to control only this one parameter to get a fully deterministic artifact.
+ */
+internal fun buildGeographicAreaReference(
+    sourceFile: File,
+    id: String,
+    type: String,
+    displayName: String,
+    parentId: String,
+    sourceVersionNote: String,
+    clock: Clock = Clock.systemUTC(),
+): GeographicAreaReferenceJson {
     val rawPolygons = parseMultiPolygon(sourceFile)
     val significant = rawPolygons.filter { polygon -> ringAreaKm2(polygon[0]) >= MIN_STRUCTURAL_NOISE_AREA_KM2 }
     require(significant.isNotEmpty()) {
@@ -113,14 +164,14 @@ fun main(args: Array<String>) {
             "unexpectedly degenerate; re-verify before proceeding."
     }
 
-    val reference = GeographicAreaReferenceJson(
+    return GeographicAreaReferenceJson(
         id = id,
         type = type,
         displayName = displayName,
         sourceId = "openstreetmap",
         sourceVersion = sourceVersionNote,
         sourceProvenance = "EXTERNAL_REFERENCE_DATASET",
-        generatedAt = "2026-09-02",
+        generatedAt = currentGenerationDate(clock),
         license = "OpenStreetMap contributors, Open Data Commons Open Database License (ODbL) v1.0 " +
             "-- https://www.openstreetmap.org/copyright -- attribution required " +
             "(\"© OpenStreetMap contributors\"). This is a Derivative Database under ODbL: if " +
@@ -131,16 +182,41 @@ fun main(args: Array<String>) {
         polygons = finalPolygons,
         parentId = parentId,
     )
-
-    outputFile.parentFile?.mkdirs()
-    outputFile.writeText(Json.encodeToString(GeographicAreaReferenceJson.serializer(), reference))
-
-    println("Wrote ${outputFile.absolutePath} (${outputFile.length()} bytes)")
-    println(
-        "id=$id type=$type parentId=$parentId components=${finalPolygons.size} " +
-            "totalVertices=${finalPolygons.sumOf { poly -> poly.sumOf { ring -> ring.size } }}",
-    )
 }
+
+/**
+ * The single explicit calendar-date domain every date this generator writes is defined in — see
+ * this file's own class-level doc comment. Fixed to France's own zone regardless of the host
+ * machine, so this generator's provenance dates never depend on where it happens to run.
+ */
+val PROVENANCE_ZONE: ZoneId = ZoneId.of("Europe/Paris")
+
+/**
+ * The artifact's truthful `generatedAt` provenance value: the real-world instant read from [clock],
+ * always reinterpreted through [PROVENANCE_ZONE] regardless of [clock]'s own zone -- so the SAME
+ * instant produces the SAME calendar date no matter what zone the caller's clock carries (including
+ * the host machine's default zone). This is design choice (A) from the FH-1 provenance-fix review:
+ * the timezone contract is enforced here, in the implementation, rather than merely documented and
+ * left to callers to honor -- `clock.withZone(PROVENANCE_ZONE)` makes it structurally impossible
+ * for a caller-supplied clock's own zone to leak into the result.
+ *
+ * Computed fresh at generation time (ISO-8601 `yyyy-MM-dd`, matching this file's established
+ * provenance-string convention) instead of a hard-coded literal a developer would otherwise have to
+ * remember to bump before every run -- that hard-coded-literal approach previously produced an
+ * impossible chronology (a stale `generatedAt` predating the same artifact's own `sourceVersion`
+ * retrieval date) when this generator was reused on a later date. A first fix attempt defaulted to
+ * [Clock.systemDefaultZone], which reproduced a smaller version of the same bug (a host running in
+ * UTC, or simply queried close to the Europe/Paris midnight boundary, could compute a different
+ * calendar date than the operator's own "today") -- the explicit `Europe/Paris` [PROVENANCE_ZONE]
+ * above fixes that class of bug structurally rather than by convention.
+ *
+ * [clock] defaults to the real system clock (any zone -- it is immediately normalized to
+ * [PROVENANCE_ZONE] regardless) but is injectable so this can be verified deterministically,
+ * including at the Europe/Paris midnight boundary and independently of the host's own default zone
+ * (see this file's own provenance test), without ever pinning a real calendar date.
+ */
+fun currentGenerationDate(clock: Clock = Clock.systemUTC()): String =
+    LocalDate.now(clock.withZone(PROVENANCE_ZONE)).toString()
 
 /**
  * **PRODUCT CALIBRATION REQUIRED** — several orders of magnitude below

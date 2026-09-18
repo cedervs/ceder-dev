@@ -1,6 +1,6 @@
 # PROJECT_STATUS.md
 
-> This file mixes two distinct kinds of information, deliberately kept
+> This file mixes several distinct kinds of information, deliberately kept
 > apart below:
 >
 > -   **Phases 1--4 (§6--§16, §18):** describe the approved project state
@@ -8,17 +8,27 @@
 >     `feat: add background location tracking`. That code state has not
 >     changed since; do not assume phase 1--4 behavior differs from what
 >     is described there.
-> -   **Documentation/governance commits already in Git, on top of
->     `7a906a9`, with no further code change:** `1e22ed4`, `ce7732d`,
->     `7b9294d`, and `d222fd7` (`docs: adopt MapLibre as map rendering
->     engine`). `d222fd7` is the current, pushed `HEAD` of `main` as of
->     this document's last update (verify with `git log`/`git rev-parse
->     HEAD` rather than assuming this stays true later).
-> -   **§17 only:** describes a first Map/MapLibre implementation
->     increment that exists **solely in the current working tree, on top
->     of `d222fd7`, and has NOT been committed or pushed.** Do not assume
->     it exists in a fresh checkout, and do not treat it as part of the
->     committed/pushed history until repository history says otherwise.
+> -   **Documentation/governance commits, then five stabilization commits,
+>     landed on top of `7a906a9`:** `1e22ed4`, `ce7732d`, `7b9294d`,
+>     `d222fd7` (`docs: adopt MapLibre as map rendering engine`), then
+>     `b2ec52e`/`30c0320`/`8c477f2` (the pre-stabilization Map/discovery
+>     visualization work §17 up to Phase F/G3 already describes), then the
+>     five-commit stabilization series: `531fa354` (chore: protect private
+>     benchmark and calibration artifacts), `43594f96` (feat: add France
+>     administrative hierarchy and derived discovery corridor --- lands
+>     §17's Phase H section below), `5d98269e` (feat: add debug-only
+>     tracking calibration diagnostics), `fcc8de9a` (feat: add trajectory
+>     buffering and reconstruction safety foundation --- lands §20/§21
+>     below), and `d54f0c77` (test: add reproducible map-matching
+>     benchmark infrastructure). `d54f0c77` is the current, pushed `HEAD`
+>     of `main` as of this document's last update (verify with `git log`/
+>     `git rev-parse HEAD` rather than assuming this stays true later).
+> -   **§17's Phase H/corridor, §20, and §21 are now committed and pushed**
+>     (see the commit mapping immediately above and §19's own detail) ---
+>     any "(uncommitted)"/"still uncommitted" wording remaining inside
+>     those sections describes what was true at the historical moment it
+>     was written (mid-review-round), not current Git state; §19 is the
+>     authoritative current-baseline record.
 >
 > This file is intended as context for Codex and Claude Code. Do not
 > assume work beyond what is explicitly and currently described here
@@ -145,10 +155,10 @@ tables and endpoints are also not implemented. Those remain future
 architectural work distinct from the existing authentication backend.
 
 MapLibre/OpenStreetMap are part of the intended mapping direction; do
-not infer that the final discovery map is already implemented at this
-commit. A first Map increment integrating MapLibre Native now exists in
-the working tree, uncommitted — see §17 for its actual scope and
-pending on-device validation.
+not infer that the final discovery map is already implemented at the
+`7a906a9` Phase 1--4 baseline this section describes. A Map increment
+integrating MapLibre Native is now committed and pushed (see §19) — see
+§17 for its actual scope and remaining pending on-device validation.
 
 ## 6. Completed phases
 
@@ -599,13 +609,34 @@ The discovery/location foundation exists, but the full visual World
 Discovery map and geographic hierarchy are not yet the completed
 product.
 
-## 17. Map/discovery visualization layer --- first increment (uncommitted)
+### Google Sign-In fails after account selection
 
-**Status: PARTIALLY IMPLEMENTED, not yet committed.** A first Map
-increment exists in the working tree on top of `d222fd7`, the current
-pushed `HEAD` of `main` (itself documentation-only on top of the
-`7a906a9` Phase 1--4 code baseline). Neither `7a906a9` nor `d222fd7` has
-moved (see §19) --- this increment has not been committed or pushed.
+Physically observed on the Samsung SM-G998U1 during Phase FH-1's physical
+validation rounds (see §17's own "second physical validation" entry):
+Google Sign-In fails after the account picker's account selection step.
+Not yet diagnosed or investigated -- tracked here as a known, separate,
+open issue. Do not modify authentication to address this without first
+inspecting the actual current code in `core-auth`/`core-network` per §7
+above.
+
+### Map tab re-entry performance
+
+Physically observed noticeable delay when leaving and returning to the
+Map tab. Not yet precisely diagnosed (no profiling/measurement performed
+yet) -- do not claim this is fixed, and do not optimize speculatively
+without first measuring where the actual delay is.
+
+## 17. Map/discovery visualization layer --- first increment (now committed and pushed)
+
+**Status: PARTIALLY IMPLEMENTED.** This section's own sub-entries are now
+committed and pushed as part of the history described in §19 (this first
+increment's own pipeline shape landed via `b2ec52e`/`30c0320`/`8c477f2`,
+predating the stabilization series; Phase H hierarchy/corridor further
+below in this section landed via `43594f96`). What follows describes
+each increment's own historical state at the time it was written —
+"uncommitted"/"not yet committed" language deeper in this section reflects
+that increment's state mid-development, not current Git status; see §19
+for the authoritative current baseline.
 
 Implemented pipeline:
 
@@ -788,12 +819,12 @@ built now:**
     discovered areas → H3). Only actually-visited administrative areas
     receive visited styling at each level; administrative hierarchy is
     country-aware since structures differ worldwide. **Country → Region →
-    Department is now IMPLEMENTED for France (Nouvelle-Aquitaine's own
-    departments; see Phase H below) — not implemented this round: below
-    Department (local discovered areas as their own navigable level) and
-    every other country** — see `docs/ai-context/OPEN_QUESTIONS.md`'s
-    existing "hybrid geographic ingestion and per-country hierarchy
-    mapping" entry.
+    Department is now IMPLEMENTED for France with full metropolitan
+    coverage (all 13 regions, all 96 departments; see Phase H and Phase
+    FH-1 below) — not implemented: below Department (local discovered
+    areas as their own navigable level), overseas France, and every other
+    country** — see `docs/ai-context/OPEN_QUESTIONS.md`'s existing "hybrid
+    geographic ingestion and per-country hierarchy mapping" entry.
 -   **Orange means VISITED/PRESENCE, never "fully explored," "100%
     completed," or "full geographic coverage."** Exact exploration
     percentage remains derived exclusively from canonical H3 discovery
@@ -804,7 +835,8 @@ built now:**
 
 **Status: IMPLEMENTED, on top of Phase F/G3 above, still uncommitted. NOT physically validated on
 device** — validated only via the manual `kotlinc`/JBR JUnit toolchain (Gradle's standing
-`JAVA_HOME`/loopback failure persisted; attempted once, not retried, per established practice).
+`Unable to establish loopback connection` failure persisted; attempted once, not retried, per
+established practice).
 Real device validation (Samsung) is still required before this can be marked physically validated.
 
 **IMPLEMENTED:**
@@ -1459,13 +1491,509 @@ by default the way this round's fix explicitly avoided assuming.
 **Physical validation status: still NOT PHYSICALLY VALIDATED** — remains blocked on a further Codex
 re-review of this micro-fix before any Samsung device test is warranted.
 
+### Phase FH-1 — Full metropolitan Department coverage (data-completion phase, NOT committed)
+
+**Status: IMPLEMENTED, uncommitted.** Phase H above shipped all 13 metropolitan regions but only
+Nouvelle-Aquitaine's 12 departments, by deliberate scoping. This phase completes the remaining 11
+regions' departments plus Corse's 2, using the exact same generator/loader/hierarchy architecture —
+no new data format, no hierarchy/classification/rendering/navigation code changed.
+
+**Data:** all 84 remaining metropolitan departments fetched from real OSM administrative relations
+(structured Nominatim query, cross-verified against each relation's own `ref:INSEE` tag, geometry via
+`polygons.openstreetmap.fr/get_geojson.py`) — the same methodology `tools/geo/README.md` already
+documents, reproduced without modifying `tools/geo/GenerateFranceAdministrativeReference.kt`. Every
+one of the 84 was INSEE-cross-checked before acceptance; none were taken on a first Nominatim hit
+alone. Corse's two departments (Corse-du-Sud `admin2:FR-2A`, Haute-Corse `admin2:FR-2B`) are included
+under `admin1:FR-20R` with no special-cased architecture — consistent with `FranceAdministrativeAreas.kt`'s
+own prior doc comment explicitly calling Corse's departments "PLANNED-NOT-IMPLEMENTED, same as every
+other non-Nouvelle-Aquitaine region's departments," not a new decision.
+
+**Files:** 84 new `core-discovery-engine/src/main/resources/geo/france/departments/*.json` artifacts
+(same `GeographicAreaReferenceJson` schema as the existing 12); `FranceAdministrativeAreas.kt`'s
+`FRANCE_ADMIN_2_RESOURCE_PATHS` extended from 12 to 96 entries (grouped by region, same order as
+`FRANCE_ADMIN_1_RESOURCE_PATHS`) and its doc comment updated to describe full coverage instead of the
+old NAQ-only scoping. No generator code changed.
+
+**Generic-engine check (as required before touching any of this):** confirmed by direct code reading
+before making any change — `GeographicAreaHierarchyValidation.kt`'s `validateGeographicAreaHierarchy`
+is already fully generic (map-keyed-by-id, no hardcoded counts); `ObserveMapReadState.kt` is the only
+production file referencing `.departments` and does so generically
+(`classifyDiscoveredCellsByGeographicAreas(validCells, franceAdministrativeAreas.departments)`);
+`feature-map`'s hierarchy/navigation/rendering tests use synthetic fixtures, not the real department
+count. **No hierarchy, classification, Map click-resolver, selection-relative styling, or camera/focus
+code was modified for this phase** — exactly the expected outcome the phase was designed to prove.
+
+**Tests updated:** `FranceAdministrativeHierarchyTest.kt` — the 3 tests that hardcoded the old
+NAQ-only shape were rewritten (Paris now has its own department and is asserted visited, not "every
+department stays unvisited"; the blanket `parentId == admin1:FR-NAQ` assertion was generalized to "every
+department's parentId resolves to a loaded region," with a separate test still pinning NAQ's own 12 to
+`admin1:FR-NAQ`; the exact-count test now asserts 13 regions / 96 departments) — plus new coverage
+tests: every region has at least one department child, region/department ids are each globally unique.
+`InteriorPointFinderRealDataTest.kt` extended with department-level equivalents of its existing
+region-level tests (findable verified interior point for all 96; genuinely inside its own geometry;
+matches exactly one real Country component; Corse's 2 departments map to the Corsica component, the
+other 94 to mainland). `ObserveMapReadStateTest.kt` — one test asserting "a Paris discovery leaves
+every department unvisited" was rewritten to assert it visits exactly Paris's own department, since
+Paris is no longer outside all loaded departments.
+
+**Validation run (manual `kotlinc`/JBR JUnit toolchain, same as established practice — Gradle's
+standing `Unable to establish loopback connection` failure attempted once, confirmed still present,
+not retried):
+`core-discovery-engine`: 543/543 passed, 0 failures**, including the hierarchy, classification,
+map-read-state, geometry, interior-point and trajectory/corridor suites — full elapsed time ~6.8s
+including JVM startup, no pathological slowdown despite most of the loaded-department count going from
+12 to 96. `feature-map` was not recompiled (Android Gradle plugin required, blocked by the same
+loopback failure; its own hierarchy/navigation tests are synthetic and have no dependency on the real
+department count, per direct source inspection). **Superseded by the provenance correction round
+below** — see that entry for the re-confirmed post-fix result; the count did not change.
+
+**Resource size:** 96 department JSON files total ≈2.06 MB (≈2.2 MB on disk), bringing
+`geo/france/`'s total to ≈3.1 MB. Eager loading (parse-once-at-startup, same as before) remains
+reasonable at this size — no caching/streaming/database architecture introduced, consistent with the
+"do not introduce it without an actual measured problem" instruction; nothing measured warranted it.
+
+**Documentation:** `ARCHITECTURE_DECISIONS.md`'s "External geographic data" entry and
+`docs/ai-context/UX_UI_SPEC.md`'s Map section both updated to describe full 96-department coverage
+instead of the old "Nouvelle-Aquitaine's 12 departments only" wording; both now explicitly flag that
+only Nouvelle-Aquitaine/Haute-Vienne has been physically validated on-device so far and the remaining
+regions still need the physical-validation pass below.
+
+**Privacy/repository safety:** all 84 new resource files scanned for accidental private content
+(usernames, local paths, credentials) — clean, as expected for public OSM administrative boundary
+data; nothing staged, committed, or pushed; `docs/ai-context/OPEN_QUESTIONS.md`'s pre-existing local
+future-basemap hunk was read but never touched.
+
+**Physical validation plan (not yet performed — automated tests above are not a substitute):**
+A. Select France, then navigate into at least Nouvelle-Aquitaine (already-validated baseline), one
+northern/eastern region (e.g. Hauts-de-France or Grand Est), one southern region (e.g. Occitanie or
+Provence-Alpes-Côte d'Azur), and Corse. B. For each, confirm Region → Department immediate visibility
+on selection (no extra tap/reload needed). C. Confirm Department selection and Back navigation return
+correctly to Region, then Country. D. Confirm existing H3 discovery-cell rendering is visually
+unaffected in a region outside Nouvelle-Aquitaine. E. Where existing discovery data allows it, confirm
+the derived first-discovery corridor still renders correctly and is unaffected by the larger loaded
+department set. F. Re-validate any previously outstanding Round 5/Round 6 physical items from Phase H
+above, since they predate this data-completion phase and were never marked resolved on-device. No
+travel to these regions is required — map navigation alone exercises the hierarchy.
+
+### Phase FH-1, Codex review provenance correction (uncommitted)
+
+**Independent Codex review of Phase FH-1 above: FAIL, blocked on one substantive defect — provenance
+integrity.** Everything else (13 regions, 96 departments, 84 new resources, generic-engine
+preservation, corridor semantics, geometry validation, privacy audit, the 543/543 test result, the
+known Gradle loopback limitation) was confirmed correct by that review and did not need rework.
+
+**Root cause:** every one of the 84 newly generated department resources carried
+`sourceVersion` text stating `retrieved 2026-09-18` alongside a `generatedAt` of `2026-09-02` — an
+impossible chronology (the artifact claiming to have been generated over two weeks *before* its own
+source data was retrieved). Traced to `tools/geo/GenerateFranceAdministrativeReference.kt`, which
+hard-coded `generatedAt = "2026-09-02"` (the date the generator was first written) rather than
+computing it at generation time; reusing the same generator on 2026-09-18 for the FH-1 batch left
+that stale literal in place. The 12 pre-existing Nouvelle-Aquitaine resources were unaffected (their
+own `generatedAt`/retrieval dates were both genuinely `2026-09-02`, no chronology conflict).
+
+**Fix (generator only, no schema change):** the hard-coded literal was replaced with
+`currentGenerationDate(clock: Clock = Clock.systemDefaultZone())`, a small function that derives
+`generatedAt` fresh from the real clock at generation time (ISO-8601 `yyyy-MM-dd`, the same string
+format every existing artifact already uses) and defaults to the operator's local time zone rather
+than UTC, so it stays comparable with a `sourceVersionNote`'s own "retrieved <date>" text instead of
+drifting a day apart near midnight UTC (this was caught and corrected during the fix itself — an
+initial `Clock.systemUTC()` default produced `2026-09-17` against a `sourceVersion` of "retrieved
+2026-09-18," reproducing a smaller version of the same class of bug). `sourceVersion` semantics are
+untouched — it still records the source/retrieval note, never generation time; the two fields are not
+conflated. A new focused, deterministic test,
+`tools/geo/GenerateFranceAdministrativeReferenceProvenanceTest.kt` (a plain `fun main()` following
+this repository's existing `tools/` smoke-test convention, no JUnit dependency needed for this
+standalone CLI directory), injects fixed `Clock`s rather than asserting a real calendar date, proving
+the mechanism tracks whatever clock it is given and can never silently regress to the old
+`2026-09-02` literal.
+
+**Regeneration:** only the 84 FH-1 department resources were regenerated, from the same already-
+fetched, already-INSEE-verified raw OSM geometry (`dept-raw/*.geojson`, unchanged) via the corrected
+generator — the 12 pre-existing Nouvelle-Aquitaine resources were left untouched, and no geometry was
+hand-edited. Two regeneration passes were needed in practice (the `Clock.systemUTC()` → local-zone
+correction above), both applied before this entry was written.
+
+**Provenance verification:** all 84 resources now read `generatedAt = 2026-09-18`, consistent with
+their own `sourceVersion` "retrieved 2026-09-18" text — chronology valid. The 12 Nouvelle-Aquitaine
+resources remain `generatedAt = 2026-09-02`, unchanged.
+
+**Content-stability check (corrected framing — see the round-2 provenance-fix entry below for why
+the original wording here overstated this):** the pre-fix 84 files were untracked and were
+overwritten in place, so no Git snapshot exists to run a strict, field-by-field before/after diff
+against — the aggregate byte count staying identical (2,058,361 bytes both before and after) is
+consistent with nothing else having drifted, but it is not, by itself, proof of content identity.
+What the available evidence actually supports: `sourceId` (`openstreetmap`) and `sourceProvenance`
+(`EXTERNAL_REFERENCE_DATASET`) are uniform across all 96 files; the `license` field hashes
+identically (one MD5 value) across all 96 files; `id`/`type`/`parentId` spot-checked against the
+authoritative Region→Department mapping for Paris, Corse-du-Sud, Finistère, Bouches-du-Rhône and
+Charente — all correct; the complete hierarchy/geometry/interior-point validation suite below passes
+against the regenerated files. No evidence of geographic drift was found, but this is not the same
+claim as a strict normalized proof.
+
+**Regression re-run (manual `kotlinc`/JBR toolchain, resources reloaded fresh, main/test code
+unchanged from Phase FH-1 above so no recompilation of `core-discovery-engine` itself was needed):
+`core-discovery-engine`: 543/543 passed, 0 failures again**, confirming the fix did not regress
+anything the prior run had already proven (hierarchy, classification, map-read-state, geometry,
+interior-point, trajectory/corridor). Gradle attempted once more:
+`Unable to establish loopback connection`, same known standing environment failure, not retried.
+
+**Documentation:** this entry itself is the correction; the misleading `JAVA_HOME`/loopback phrasing
+in Phase H's and Phase FH-1's own status lines above was corrected to name the actual, specific
+failure (`Unable to establish loopback connection`) rather than conflating it with `JAVA_HOME`.
+Physical validation remains explicitly **NOT YET PERFORMED** — unchanged by this provenance fix, and
+`feature-map`/Android validation limitations remain as stated above (Android Gradle plugin blocked by
+the same loopback failure; `feature-map`'s hierarchy/navigation tests are synthetic and unaffected
+either way).
+
+**Scope audit:** confirmed no change to hierarchy architecture, classification logic, click resolver,
+selection-relative styling, camera/focus, corridor semantics, basemap, reconstruction, trajectory
+buffer, Safety Gate, adaptive cadence, or Certified logic — only the generator's date/provenance
+handling, its new focused test, the 84 resources' `generatedAt` metadata, and this documentation
+entry.
+
+**Privacy/repository safety:** re-scanned all 84 regenerated files — still clean, as expected (public
+OSM administrative boundary data, no local paths/usernames/credentials); `docs/ai-context/
+OPEN_QUESTIONS.md`'s pre-existing local future-basemap hunk remains untouched; nothing staged,
+committed, or pushed.
+
+### Phase FH-1, Codex review provenance correction round 2 (uncommitted)
+
+**Independent Codex re-review of the round-1 provenance fix above: FAIL — the 84 resources
+*themselves* were correct, but the generator contract was not.** `currentGenerationDate(clock: Clock
+= Clock.systemDefaultZone())` was host-timezone dependent: the same real instant could legitimately
+produce different `generatedAt` calendar dates on different machines, so the date domain shared with
+`sourceVersion`'s retrieval-date convention was not formally guaranteed, only coincidentally correct
+on the machine this round happened to run on. Codex also found the round-1 regression test
+insufficient: it used only UTC clocks, never exercised the actual midnight-boundary case where the
+UTC and target calendar dates genuinely differ, and tested `currentGenerationDate()` in isolation
+rather than the real artifact-generation path `main()` calls — a test that would keep passing even
+if that path stopped using the helper at all.
+
+**Explicit provenance date domain:** `Europe/Paris`, always — defined as `PROVENANCE_ZONE =
+ZoneId.of("Europe/Paris")` directly in `tools/geo/GenerateFranceAdministrativeReference.kt`, next to
+[currentGenerationDate]'s own definition, and documented in that file's class-level doc comment as
+the single explicit calendar-date domain every date this France-specific generator writes is defined
+in — including the retrieval-date convention an operator follows when writing a `sourceVersionNote`
+by hand (the generator does not parse that text, but the shared convention is what makes it and
+`generatedAt` comparable). `Clock.systemDefaultZone()` was removed entirely — this generator now
+never depends on the host's own timezone for any date it writes.
+
+**Implementation — enforced, not merely documented (design A from the review's own options):**
+`currentGenerationDate(clock: Clock = Clock.systemUTC())` now reads `clock.withZone(PROVENANCE_ZONE)`
+before computing `LocalDate.now(...)` — i.e. it takes whatever clock (and whatever zone) it is given
+and always reinterprets the underlying instant through `Europe/Paris`, rather than trusting the
+caller (or the default parameter) to already carry the right zone. This makes the contract
+structurally impossible to violate by accident: a caller passing a UTC clock, a Tokyo clock, or a
+clock in the host's own arbitrary default zone all produce the identical result for the same real
+instant, proven by the new host-timezone-independence test below. The default parameter's own zone
+is deliberately irrelevant for this same reason (`Clock.systemUTC()` is used only as an unremarkable,
+conventional default, not because UTC has any special status here).
+
+**`sourceVersion` contract:** unchanged in meaning — it still records the source/retrieval note, not
+a generation timestamp, and this generator does not parse or redesign it. Documented explicitly
+(class-level doc comment) that a `sourceVersionNote`'s own "retrieved &lt;date&gt;" text, when
+written by an operator for this France generator, is understood to follow the same `Europe/Paris`
+calendar-date convention as `generatedAt` — this is what makes the two fields comparable at all, not
+an automatic guarantee independent of the operator following the convention.
+
+**Midnight-boundary regression (new):** `verifyMidnightBoundary()` in
+`GenerateFranceAdministrativeReferenceProvenanceTest.kt` fixes a clock to the instant
+`2026-01-15T23:30:00Z` — still `2026-01-15` in UTC, but Europe/Paris is `UTC+1` in January (CET, no
+DST ambiguity), so the same instant is already `2026-01-16` there. Only an implementation that
+genuinely reinterprets through `Europe/Paris` (rather than trusting the input clock's own UTC zone,
+or defaulting to the host's zone) answers `2026-01-16`. **PASS.**
+
+**Host-timezone-independence regression (new):** `verifyHostTimezoneIndependence()` fixes the SAME
+instant (`2026-06-10T12:00:00Z`) across five clocks tagged with different, mutually unrelated zones
+(UTC, `America/Los_Angeles`, `Asia/Tokyo`, `Australia/Sydney`, and `Europe/Paris` itself, standing in
+for "whatever zone the host machine happens to default to") and asserts all five produce the
+identical `2026-06-10` result — proving the caller's own clock zone can never leak into the answer.
+**PASS.**
+
+**Production-artifact-path regression (new):** the parse/filter/simplify/construct pipeline
+previously inlined in `main()` was extracted, minimally, into `internal fun
+buildGeographicAreaReference(...)` (same logic, same behavior, `main()` is now a thin wrapper around
+it plus the file-write/summary printing) — this is the function every real bundled artifact is
+actually produced through. `verifyProductionArtifactPath()` calls it directly against a small
+synthetic ~100 km² square GeoJSON fixture written to a local temp file at test time (no network
+access, no dependency on any previously-fetched OSM file, deleted after the test), with a fixed
+clock at the same midnight-boundary instant, and asserts the resulting artifact's own `generatedAt`
+equals `currentGenerationDate(clock)` for that same clock — proving the real generation path is
+wired to the same provenance mechanism, not a test-only stand-in for it. This test does not
+reimplement the timezone-conversion logic; it calls the real production function once and compares
+against the real helper's own output, so a future regression (e.g. `buildGeographicAreaReference`
+reverting to a hard-coded literal) would make the two diverge and fail the test. **PASS.**
+
+**84 FH-1 resource status:** regenerated a third time (round 1 had already produced two internal
+passes; this is the first regeneration under the corrected `Europe/Paris`-enforced contract) from the
+same already-fetched, INSEE-verified raw OSM geometry (`dept-raw/*.geojson`, unchanged) — the 12
+pre-existing Nouvelle-Aquitaine resources were, again, left untouched. Result: **identical to before
+this round** — all 84 still read `generatedAt = 2026-09-18` (this session's host machine's own
+timezone already happens to align with `Europe/Paris` for the instant in question, so the explicit
+zone did not change the answer this time; it removes the *dependency*, not necessarily today's
+specific value), total byte count across all 96 files unchanged at 2,058,361, `sourceId`/
+`sourceProvenance`/`license` unchanged and uniform. This was legitimate, non-churning regeneration
+under §7's own stated condition ("if regenerating them ... produces the same legitimate `generatedAt`
+value and no other content change, regeneration is acceptable") — not skipped, since the contract
+genuinely changed even though today's specific output did not.
+
+**Content-stability claim, corrected:** the round-1 entry above overstated this — "identical
+aggregate byte count" is consistent with, but is not proof of, content identity, since the pre-fix 84
+files were untracked and were overwritten in place with no Git snapshot to diff against. That entry
+has been corrected in place above; this round adds no stronger claim than the corrected one.
+
+**Dataset/geometry regression:** re-ran the complete coverage/geometry/interior-point suite — 13
+regions, 96 departments, every region has department children, unique region/department ids, every
+department `parentId` resolves to a loaded region, Corsica component mapping correct for both
+Corse departments. No change from the round-1 result.
+
+**Automated tests (manual `kotlinc`/JBR toolchain — resources reloaded fresh; `core-discovery-engine`
+main/test code unchanged from Phase FH-1 above, so no recompilation of that module was needed):
+`core-discovery-engine`: 543/543 passed, 0 failures.** Gradle attempted once more:
+`Unable to establish loopback connection`, same known standing environment failure, not retried — no
+Android/Gradle success is claimed.
+
+**Documentation:** this entry; the round-1 "Content-stability check" paragraph corrected in place
+(see above) rather than left overstated. Physical validation remains explicitly **NOT YET
+PERFORMED**.
+
+**Scope audit:** confirmed no change to hierarchy architecture, classification logic, click resolver,
+selection-relative styling, camera/focus, corridor semantics, basemap, reconstruction, trajectory
+buffer, Safety Gate, adaptive cadence, or Certified logic — only the generator's timezone contract,
+its strengthened test, the extraction of `buildGeographicAreaReference` (pure refactor, identical
+generation logic), the 84 resources (regenerated, content unchanged), and this documentation.
+
+**Privacy/repository safety:** re-scanned all 84 regenerated files and the new/changed generator
+files — clean; `docs/ai-context/OPEN_QUESTIONS.md`'s pre-existing local future-basemap hunk remains
+untouched; nothing staged, committed, or pushed.
+
+### Phase FH-1, Codex review provenance correction round 3 — test-only (uncommitted)
+
+**Final Codex re-review: one remaining weakness, test-only.** Round 2's production-artifact-path
+test called `buildGeographicAreaReference(...)` with a single `Clock`, so a hypothetical future
+regression that replaced its `generatedAt` with any one fixed, hard-coded date could still satisfy
+that single assertion by coincidence. Fixed by strengthening the test alone — **no production code
+changed**: `verifyProductionArtifactPath()` in
+`tools/geo/GenerateFranceAdministrativeReferenceProvenanceTest.kt` now calls the real
+`buildGeographicAreaReference(...)` twice, against the same synthetic local fixture, with two
+deterministic clocks whose Europe/Paris calendar dates genuinely differ (clock A →
+`2026-01-16`, clock B → `2026-07-20`, both explicit literals, never recomputed via
+`currentGenerationDate` itself), and asserts both individual matches AND that the two results
+differ from each other. Verified by a manual mutation check (temporarily hard-coding
+`generatedAt = "2026-01-16"` in the generator): the strengthened test correctly failed
+(`expected ... clock B to produce generatedAt=2026-07-20, got 2026-01-16`); the production line was
+then restored to `generatedAt = currentGenerationDate(clock)` and re-verified passing. The three
+previously-passing tests (Europe/Paris contract via the midnight-boundary case, host-timezone
+independence, obsolete-literal protection) were kept unmodified.
+
+**84 FH-1 resources: untouched, as instructed** — this was a test-only change with no production
+code modification, so no regeneration was needed or performed; still 84/84 at
+`generatedAt = 2026-09-18` matching their own `2026-09-18` retrieval date, total byte count
+unchanged at 2,058,361. The 12 Nouvelle-Aquitaine resources remain untouched.
+
+**Validation:** provenance test — PASS (all four checks: Europe/Paris contract, midnight boundary,
+host-timezone independence, two-date production-artifact path). `core-discovery-engine` regression
+(manual `kotlinc`/JBR toolchain): **543/543 passed, 0 failures**, unchanged from round 2. Gradle not
+re-attempted for this test-only change, per instruction; the standing
+`Unable to establish loopback connection` environment failure remains recorded from the prior
+attempts above and is assumed unchanged. Physical validation remains explicitly
+**NOT YET PERFORMED**.
+
+**Scope audit:** confirmed no change to hierarchy architecture, classification, navigation, styling,
+camera/focus, corridor, basemap, reconstruction, trajectory buffer, Safety Gate, adaptive cadence,
+Certified logic, or the 84 FH-1 geographic resources — only the provenance test file.
+
+### Phase FH-1, runtime hierarchy fix — unvisited administrative children must remain navigable (uncommitted)
+
+**FH-1's dataset itself was confirmed correct (13 Regions / 96 Departments genuinely loaded at
+runtime) — the defect was in `feature-map`'s UI layer, found during the first real physical-device
+validation attempt.** `MapScreen` filtered `franceAdmin1Statuses`/`franceAdmin2Statuses` down to
+`visited == true` before ever handing them to `DiscoveryMapView`, discarding the unvisited majority
+along with their own visited-state information. Consequence: only Nouvelle-Aquitaine/Haute-Vienne
+(the one region/department with real discovery data) ever reached rendering or MapLibre hit-testing
+— every other Region/Department was genuinely loaded and valid but simply never appeared or resolved
+a click, since `queryRenderedFeatures` cannot hit-test a feature that was never rendered. **This
+behavior predates FH-1**; FH-1 only exposed it by finally completing the France hierarchy enough for
+the gap to be physically observable at Region/Department level (previously only Nouvelle-Aquitaine
+existed to test against).
+
+**Product rule now enforced end-to-end: administrative EXISTENCE and discovery PRESENCE are
+different concepts.** `visited` still determines styling (orange = VISITED/PRESENCE, unchanged
+semantics); it must never determine whether an area exists in the interactive hierarchy. `MapScreen`
+now passes the COMPLETE `GeographicAreaVisitedStatus` lists straight through (no filtering, no
+`.area`-only projection that discards the visited flag) to `DiscoveryMapView`, which already owns the
+current focus/selection state needed to do the real PARENT-SCOPED render-candidate decision:
+`administrativeRenderCandidates` (new, in `AdministrativeOverlayRendering.kt`) exposes all 13 loaded
+Regions unconditionally (there is only one loaded Country, so "France selected → all 13 Regions" has
+no narrower parent to scope against) and restricts Departments to whichever Region is currently
+focused — empty at Country/World view, never all 96 at once. Click resolution needed **no logic
+change at all**: `resolveGeographicClick`'s own parent-scoping filter (`region.parentId ==
+focusedCountryId` / `department.parentId == focusedAdmin1Id`) was already fully generic and already
+correct — the bug was entirely in the caller narrowing the candidate universe before it ever reached
+that function. `GeographicClickContext`'s `visitedRegions`/`visitedDepartments` fields were renamed
+to `regions`/`departments` (now genuinely the full candidate universe, never a visited-only subset)
+for accuracy, mechanical rename only.
+
+**Styling: a new, independent `visited` dimension, orthogonal to the existing selection-relative
+`GeographicAreaStyleRole`.** `administrativeFillColorHex(role, visited)` (new, in
+`GeographicHierarchyStyling.kt`) combines both: the three existing orange shades when
+`visited == true` (byte-identical to before this fix), three new neutral greys
+(`GEOGRAPHIC_UNVISITED_SELECTED_FILL_COLOR` `#9E9E9E` / `..._DIRECT_SUBLEVEL...` `#707070` /
+`..._ANCESTOR_CONTEXT...` `#454545`, provisional calibration values, same status as the existing
+orange constants) when `visited == false` — **orange never appears for an unvisited area, regardless
+of its selection role.** Each rendered Region/Department Feature now carries an explicit
+`visited` GeoJSON property (`"true"`/`"false"`) alongside the existing `styleRole` property;
+`administrativeAreaColorExpression` (new) reads both (via `Expression.concat`) to pick the final
+color. The Country-level overlay (`CountryOverlayRendering.kt`) is completely unchanged — out of this
+fix's scope, since Country-level rendering was never filtered to visited-only in the first place.
+
+**Files changed:** `MapScreen.kt` (stopped filtering/projecting — passes full
+`GeographicAreaVisitedStatus` lists), `DiscoveryMapView.kt` (renamed params to
+`admin1Statuses`/`admin2Statuses`; click context now built from the full area lists; render effect
+now calls `administrativeRenderCandidates` before `applyAdministrativeOverlay`; Department
+route-clip lookup now searches the complete `admin2Statuses`, not a visited-only subset, so clipping
+still resolves correctly for an unvisited selected Department), `AdministrativeOverlayRendering.kt`
+(`applyAdministrativeOverlay`/`administrativeOverlayFeatureCollection` now take
+`List<GeographicAreaVisitedStatus>`; new `administrativeRenderCandidates`/
+`AdministrativeRenderCandidates`; features now tagged with the new `visited` property), `Geographic
+HierarchyStyling.kt` (new unvisited color constants, `administrativeFillColorHex`,
+`ADMIN_OVERLAY_VISITED_PROPERTY`, `administrativeAreaColorExpression`), `AdministrativeAreaNavigation.kt`
+(field rename only, `GeographicClickContext.visitedRegions/visitedDepartments` →
+`regions`/`departments`; one doc-comment correction). No corridor/H3/trajectory/reconstruction/
+Safety Gate/basemap/Certified code touched.
+
+**Tests:** `AdministrativeOverlayRenderingTest.kt` — existing tests updated to the new
+`GeographicAreaVisitedStatus`-based signature (no behavior change to what they prove) plus new
+coverage: an unvisited candidate is still rendered as a Feature; every Feature carries an accurate
+explicit `visited` property; `styleRole` and `visited` are proven independent tags; and a dedicated
+`administrativeRenderCandidates` section proving — verbatim against this round's own required
+regression list — (A) France/no-Region-focus exposes every loaded Region regardless of visited state
+and Departments stay empty; (B) a focused Region exposes ALL its own Department children regardless
+of visited state; (C) an unvisited candidate keeps its own real `visited=false`, never silently
+promoted; (H) a sibling Region's Department never leaks into the render-candidate set when one Region
+is focused — proving Departments never render all-96-at-once. `AdministrativeAreaNavigationTest.kt`
+— mechanical rename of the renamed fields across every existing call site (regression-neutral) plus
+two new tests proving click resolution can genuinely select a Region/Department sourced from an
+`unvisited` `GeographicAreaVisitedStatus` (E/F), and one test re-confirming the existing
+Nouvelle-Aquitaine → Haute-Vienne click sequence still resolves correctly end to end (I).
+`GeographicHierarchyStylingTest.kt` — new coverage for `administrativeFillColorHex`: visited output
+matches the existing plain role color exactly; unvisited output is never one of the three orange
+visited colors, for any role; the three unvisited colors are themselves mutually distinct; visited
+and unvisited differ for the same role. Corridor/H3/classification tests are untouched (out of
+scope) and remain green per `core-discovery-engine`'s own unaffected 543/543 (J) — nothing in this
+fix touches that module.
+
+**Validation (manual `kotlinc`/JBR toolchain — `android-sdk-opengl`'s real MapLibre classes extracted
+from its AAR, plus `android-sdk-geojson`, `gson`, `androidx.annotation`, `androidx.lifecycle-common`,
+and a real `android.jar` platform stub; the two Jetpack-Compose-heavy files, `MapScreen.kt` and
+`DiscoveryMapView.kt`, could not be compiled in this manual toolchain — no Compose runtime/UI/
+foundation/material3/activity-compose jars are set up here — so those two files' edits were verified
+by careful full-file manual review plus consistency cross-checks against the other 17 files'
+compiled, real signatures instead): the other 17 `feature-map` main source files (everything actually
+containing this fix's logic) compiled cleanly, and **172/172 `feature-map` unit tests passed, 0
+failures** — every pre-existing test that needed updating for the new signatures, every new test
+listed above, and every untouched file's own existing tests (proving no collateral regression).
+`core-discovery-engine` untouched this round; its own 543/543 result stands. Gradle attempted once
+(`:feature-map:testDebugUnitTest`): `Unable to establish loopback connection`, same known standing
+environment failure, not retried. **No Android/MapLibre/physical validation is claimed** — the user
+must rebuild through Android Studio for that.
+
+**Performance:** no repeated resource parsing introduced (France resources still parse once per
+`AppContainer`/process, unchanged); Departments are never rendered all-96-at-once — parent-scoped to
+at most one Region's own children (2-13 Departments) at a time, same or lower feature count than a
+naive "render everything" approach would produce. `administrativeRenderCandidates` and
+`.map{it.area}` calls are plain `O(n)` list operations over at most 96 items, run once per style
+re-application (already-existing effect cadence, not a new subscription or new re-render trigger) —
+no measured or structurally obvious slowdown; no caching/database/streaming architecture introduced,
+consistent with the "do not introduce it without an actual measured problem" instruction from FH-1's
+own §9.
+
+**Google Sign-In failure after account selection** — physically observed during this round's
+validation pass, recorded here as a **separate, out-of-scope issue** per explicit instruction: not
+investigated or touched in this fix.
+
+**Documentation:** this entry. FH-1's dataset correctness (13 Regions / 96 Departments genuinely
+loaded) is unaffected and remains as documented above; this entry adds the runtime UI-layer
+correction on top. Physical validation was **NOT YET PERFORMED at the time this entry was written**
+— see the following entry for the actual physical-validation result, performed after this fix
+landed in the working tree.
+
+### Phase FH-1, second physical validation — PASS (uncommitted)
+
+**Functional physical validation: PASS.** The user rebuilt and installed the current working tree
+through Android Studio on the physical Samsung SM-G998U1. Android Studio build: PASS. App launch:
+PASS. Physically confirmed on-device:
+
+- **Country level:** the France view exposes the metropolitan Regions, including previously
+  unvisited ones, all clickable.
+- **Unvisited Region (Grand Est):** visible, selectable; selection/focus/camera-fit worked; its
+  Department boundaries became available immediately, exactly as the runtime hierarchy fix above
+  intended.
+- **Unvisited Department (inside Grand Est):** visible, clickable; selection/focus/camera-fit worked
+  despite having no discovered H3 in it at all — direct physical confirmation of the fix's own core
+  claim ("an unvisited administrative area must remain navigable").
+- **Visited-branch regression check:** existing visited geography still reads orange; the
+  Nouvelle-Aquitaine/Haute-Vienne visited behavior (the one region/department this app had real
+  discovery data for before this phase) remains functional; existing discovered H3 cells remain
+  present and rendered.
+
+**FH-1 is now functionally physically validated.** This closes the runtime defect the first physical
+validation attempt (above) exposed. This is a functional-behavior result only — it does **not** claim
+visual-design completion, worldwide hierarchy support, or final basemap completion; those remain
+exactly as scoped everywhere else in this document.
+
+**UX observations from this validation round — recorded as future work, not FH-1 blockers, and not
+acted on in this round:**
+
+- **Department labels:** Department boundaries render, but World Discovery does not yet provide its
+  own controlled Department-name labels — only the basemap's own city labels are visible. Future
+  hierarchy/basemap work should add deliberate administrative labeling.
+- **Administrative contrast:** the current provisional neutral unvisited styling
+  (`GEOGRAPHIC_UNVISITED_*_FILL_COLOR`, see the runtime-hierarchy-fix entry above) can visually blend
+  with surrounding basemap geography for an unvisited selected Department. A future visual
+  calibration concern, not redesigned in this round.
+- **Zoom-dependent hierarchy visibility:** Country/Region/Department/H3/label overlays each become
+  visible only at their own current zoom thresholds (`ADMIN1_OVERLAY_MIN_ZOOM`/
+  `ADMIN2_OVERLAY_MIN_ZOOM`/etc., all still `PRODUCT CALIBRATION REQUIRED` provisional values per
+  their own doc comments). Future basemap/hierarchy UX work must define deliberate visibility
+  thresholds across all levels together; not changed in this round.
+- **Basemap clutter:** the current `DEV_ONLY_DEMO_STYLE_URL` (OpenFreeMap Liberty) shows many roads,
+  city labels, road numbers, and POI/context details the user considers too visually busy for the
+  final product experience. OpenFreeMap Liberty remains the documented temporary validation-only
+  basemap (see `DiscoveryMapView.kt`'s own doc comment and `docs/ai-context/OPEN_QUESTIONS.md`'s
+  "Final Map art direction" entry) — not final, not modified in this round.
+
+**Tracking/reconstruction observation (separate future work, not an FH-1 defect):** during this
+validation round the user also performed a physical urban route validation, inspecting existing
+discovery/tracking data rendered for that area. Current rendering visibly contains many small H3 cells, raw/
+diagnostic blue location observations, clusters of blue observations where the device stayed in one
+place, gaps between discovered samples along travelled routes, and visually fragmented/punctuated
+route coverage. Trajectory reconstruction remains intentionally inactive (§20/§21 above) — this
+observation is consistent with that and is not caused by, or a defect in, the FH-1 hierarchy work.
+The already-documented product direction stands unchanged: raw GPS observations → ordered temporary
+trajectory history → safe reconstruction/map-matching → reconstructed geographic trajectory → H3
+discovery, with observed and reconstructed provenance kept strictly distinct, and any future
+reconstructed segment initially `NON_CERTIFIED` unless/until a future Certified policy explicitly
+allows otherwise. Nothing here was changed this round; recorded as an observation only.
+
+**Map-tab re-entry performance:** the previously-reported noticeable delay when leaving and returning
+to the Map tab remains **OBSERVED PHYSICALLY, NOT YET PRECISELY DIAGNOSED** — not claimed fixed, not
+optimized this round.
+
+**Google Sign-In:** fails after account selection, physically observed again this round — remains a
+**separate, open, out-of-scope issue**, not investigated or touched.
+
+**Scope audit:** this round changed documentation only — no production code, no tests, no geographic
+resources, no generator, no provenance.
+
 ## 18. Constraints for Codex / Claude Code
 
 1.  Treat `7a906a9` as the historical Phase 1--4 code baseline (§6--§16)
-    and `d222fd7` as the current pushed `HEAD` of `main` (documentation
-    only on top of `7a906a9`, no further code change). Treat §17's
-    Map/MapLibre increment as uncommitted working-tree state layered on
-    top of `d222fd7`, not yet part of either baseline — verify with
+    and `d54f0c77bb376c558778232cb28219ddd8fe1ef5` as the current pushed
+    `HEAD` of `main` — see §19 for the full commit chain between them,
+    including the five-commit stabilization series that landed §17's
+    Phase H hierarchy/corridor, §20's trajectory buffer foundation, and
+    §21's Reconstruction Safety Gate as real pushed history. Verify with
     `git log`/`git rev-parse HEAD` rather than assuming this stays
     current.
 2.  Inspect existing code before replacing architecture.
@@ -1511,10 +2039,8 @@ commit message: feat: add background location tracking
 
 `7a906a9` was pushed successfully to `main` and remains the reference
 commit for the completed Phases 1--4. No code changed between `7a906a9`
-and the current pushed `HEAD` below — only documentation/governance
-commits landed in between.
-
-Current pushed `HEAD` of `main` (documentation only):
+and `d222fd7` below — only documentation/governance commits landed in
+between.
 
 ``` text
 branch: main
@@ -1522,16 +2048,47 @@ commit: d222fd7
 commit message: docs: adopt MapLibre as map rendering engine
 ```
 
+On top of `d222fd7`, real Map/discovery-visualization code landed
+(`b2ec52e`, `30c0320`), then a stabilization fix (`8c477f2`), then a
+five-commit stabilization series that lands §17's Phase H
+(hierarchy/corridor), §20 (trajectory buffer foundation), and §21
+(Reconstruction Safety Gate) below as real, pushed history:
+
+``` text
+8c477f298b864e9c3db23ce302c9b742cb4ca3e1
+  fix: preserve observed provenance during reconstructed cell merges
+→ 531fa35496d655b9e55b9d78b1b487bc827d4acd
+  chore: protect private benchmark and calibration artifacts
+→ 43594f96dca1012ea703b24cbbb0ea8364a38264
+  feat: add France administrative hierarchy and derived discovery corridor
+→ 5d98269e2e3c7189c39bf5cd0ab9c9555da5b372
+  feat: add debug-only tracking calibration diagnostics
+→ fcc8de9a22e365e3d738fc2a9e919f45d82c0a6e
+  feat: add trajectory buffering and reconstruction safety foundation
+→ d54f0c77bb376c558778232cb28219ddd8fe1ef5
+  test: add reproducible map-matching benchmark infrastructure
+```
+
+Current pushed `HEAD` of `main`:
+
+``` text
+branch: main
+commit: d54f0c77bb376c558778232cb28219ddd8fe1ef5
+commit message: test: add reproducible map-matching benchmark infrastructure
+```
+
 Verify this is still accurate with `git log`/`git rev-parse HEAD` rather
-than assuming it stays current as the repository evolves.
+than assuming it stays current as the repository evolves. Phase 3A
+(§21) is **ACCEPTED but INACTIVE/NOT WIRED** even though it is now
+committed and pushed — see §21's own guardrails before any future round
+considers live wiring; being pushed is not the same as being active.
+The map-matching benchmark tooling/evidence (§17's own cross-references
+to `docs/ai-context/MAP_MATCHING_ENGINE_STUDY.md` and
+`docs/ai-context/PHASE_2B_BENCHMARK_PROTOCOL.md`) is also now committed
+and pushed, as reference engineering evidence only — no matcher is
+selected or wired.
 
-Working tree beyond `d222fd7`: the Map/MapLibre implementation increment
-described in §17 exists only in the current working tree. It is **not**
-part of `d222fd7` or any pushed commit, and must not be assumed to exist
-in a fresh checkout until repository history establishes a newer pushed
-baseline that supersedes this section.
-
-## 20. Trajectory reconstruction — Phase 1 foundations (uncommitted)
+## 20. Trajectory reconstruction — Phase 1 foundations (committed, pushed via `fcc8de9a`; still INACTIVE/NOT WIRED)
 
 Follows a dedicated architecture study (background-tracking physical test:
 Samsung SM-G998U1, 43/15/11/11 observations across 4 phases, background
@@ -1613,14 +2170,16 @@ was compiled and run manually. `core-database` main sources (including the
 claim/lease DAO) were verified to type-check cleanly against real Room 2.8.4
 classes via the manual toolchain.
 
-**Git**: baseline unchanged at `8c477f298b864e9c3db23ce302c9b742cb4ca3e1`;
-not committed, not pushed; the 7 pre-existing untracked local artifacts
+**Git**: this section's content was written against baseline
+`8c477f298b864e9c3db23ce302c9b742cb4ca3e1`, uncommitted at the time — it
+is now committed and pushed via `fcc8de9a22e365e3d738fc2a9e919f45d82c0a6e`
+(still INACTIVE/NOT WIRED, see §19). The 7 pre-existing local artifacts
 (`map-doc-diff.txt`, `review-context.txt`, `review.ps1`, `trip1.txt`,
 `trip2.txt`, `trip3.txt`, `vehicle1.txt`) plus the also-untracked
 `tracking-calibration.ndjson` (a pulled physical-device diagnostic file,
 unrelated byproduct of the temporary calibration logger) remain untouched.
 
-## 21. Reconstruction Safety Gate — Phase 3A domain contract, Correction Round 3 applied (uncommitted)
+## 21. Reconstruction Safety Gate — Phase 3A domain contract, Correction Round 3 applied (committed, pushed via `fcc8de9a`; ACCEPTED but still INACTIVE/NOT WIRED)
 
 Turns the Phase 2B real-ground-truth map-matching benchmark's accepted
 findings (`docs/ai-context/PHASE_2B_BENCHMARK_PROTOCOL.md`) into a generic,
@@ -1731,11 +2290,17 @@ caller mixing up which run was *intended*; the authorization boundary is
 above); `bridgedObservationEdges` correctness depends on the producer's own
 honest disclosure — the gate cannot independently verify it.
 
-**Git**: baseline unchanged at `8c477f298b864e9c3db23ce302c9b742cb4ca3e1`;
-not committed, not pushed; no file outside `core-discovery-engine`'s
-`trajectory` package (main and test) touched; the pre-existing uncommitted
-Phase 1/2A work (`BufferedObservation*`, `ClassifyDiscoveredCellsByGeographicAreas.kt`,
+**Git**: this section's content was written against baseline
+`8c477f298b864e9c3db23ce302c9b742cb4ca3e1`, uncommitted at the time; no
+file outside `core-discovery-engine`'s `trajectory` package (main and
+test) was touched by this round itself. Everything named at the time as
+"the pre-existing uncommitted work" alongside it
+(`BufferedObservation*`, `ClassifyDiscoveredCellsByGeographicAreas.kt`,
 `DiscoveredRoute.kt`, France admin GeoJSON resources,
 `AdministrativeAreaNavigation.kt`, `CalibrationDiagnostic*`,
-`ScreenStateCalibrationReceiver.kt`, `TrajectoryObservationCapture.kt`, etc.)
-remains completely untouched.
+`ScreenStateCalibrationReceiver.kt`, `TrajectoryObservationCapture.kt`,
+etc.) is now committed and pushed across the five-commit stabilization
+series (§19) — the hierarchy/corridor files via `43594f96`, the
+calibration files via `5d98269e`, and this Safety Gate/trajectory-buffer
+package itself (including `TrajectoryObservationCapture.kt`) via
+`fcc8de9a`. Still INACTIVE/NOT WIRED regardless — see §19.

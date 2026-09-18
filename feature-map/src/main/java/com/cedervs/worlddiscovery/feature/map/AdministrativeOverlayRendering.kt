@@ -2,6 +2,7 @@ package com.cedervs.worlddiscovery.feature.map
 
 import com.cedervs.worlddiscovery.core.discovery.GeographicArea
 import com.cedervs.worlddiscovery.core.discovery.GeographicAreaType
+import com.cedervs.worlddiscovery.core.discovery.GeographicAreaVisitedStatus
 import com.google.gson.JsonObject
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
@@ -22,30 +23,37 @@ import org.maplibre.geojson.MultiPolygon
  * fill/outline/[BasemapAlignedBorderRendering] behavior is completely unaffected by this file
  * existing at all.
  *
- * **One Feature per visited area, geometry = the area's own full `MultiPolygon` (every component
- * together), never decomposed per-island the way [CountryOverlayRendering] decomposes France's own
- * 3 components.** This is a deliberate, documented scoping decision for this round (see
+ * **One Feature per render-candidate area (visited or not, see [administrativeRenderCandidates]),
+ * geometry = the area's own full `MultiPolygon` (every component together), never decomposed
+ * per-island the way [CountryOverlayRendering] decomposes France's own 3 components.** This is a
+ * deliberate, documented scoping decision for this round (see
  * `tools/geo/GenerateFranceAdministrativeReference.kt`'s own doc comment and `PROJECT_STATUS.md`):
- * clicking anywhere within a visited region/department (including any of its own real coastal
- * islands, e.g. Bretagne's) fits the camera to that ONE area's own bounds, not to an independently
- * clickable island. [com.cedervs.worlddiscovery.core.discovery.GeographicAreaComponent] still works
- * unchanged on any area this renders, so per-island navigation remains available to a future round
- * with zero data regeneration — this file simply doesn't call it.
+ * clicking anywhere within a region/department (including any of its own real coastal islands, e.g.
+ * Bretagne's) fits the camera to that ONE area's own bounds, not to an independently clickable
+ * island. [com.cedervs.worlddiscovery.core.discovery.GeographicAreaComponent] still works unchanged
+ * on any area this renders, so per-island navigation remains available to a future round with zero
+ * data regeneration — this file simply doesn't call it.
  *
- * **Color is selection-relative, not a fixed per-level constant** — physical-validation correction
- * round; see `GeographicHierarchyStyling.kt`'s own doc comment for the full rationale and the
- * previous, rejected "Country darkest -> Region medium -> Department lightest, permanently" design
- * this replaces. The same Region renders as [GeographicAreaStyleRole.DIRECT_SUBLEVEL] (darker) while
- * merely a sub-level beneath a selected Country, but as [GeographicAreaStyleRole.SELECTED] (light)
- * the moment that Region itself becomes the focused level — this file shares the exact same 3-color
- * palette and the exact same [GEOGRAPHIC_STYLE_ROLE_PROPERTY]-tagging mechanism as
- * [CountryOverlayRendering]'s own Country-level fill, so all three levels always read as one
- * consistent visual language. Still VISITED/PRESENCE semantics only, never a completion/coverage
- * claim — see [com.cedervs.worlddiscovery.core.discovery.GeographicAreaVisitedStatus]'s own doc
- * comment; the same "never highlight anything not actually visited" rule the Country overlay already
- * follows applies identically here: [visitedRegions]/[visitedDepartments] are the caller-pre-filtered
- * `visited == true` subsets (mirroring `MapScreen`'s existing `visitedFranceComponents` filtering),
- * never the full loaded area list.
+ * **Color is selection-relative AND visited-relative — two independent dimensions, never one merged
+ * concept.** (FH-1 runtime hierarchy fix.) Administrative EXISTENCE and discovery PRESENCE are
+ * different concepts: every loaded Region/Department is now always a render/click CANDIDATE — see
+ * [administrativeRenderCandidates] — regardless of whether it has ever been visited, because an
+ * unvisited Region or Department must remain navigable (tap Grand Est, tap Haute-Marne, with zero
+ * discovered H3 in either — this must work). What DOES still depend on [GeographicAreaVisitedStatus.visited]
+ * is color alone: [GeographicHierarchyStyling.administrativeFillColorHex] combines the existing
+ * selection-relative [GeographicAreaStyleRole] (see that file's own doc comment for the full
+ * rationale and the previous, rejected "Country darkest -> Region medium -> Department lightest,
+ * permanently" design) with `visited` to pick one of six colors — three shades of orange when
+ * `visited == true` (unchanged from before this fix, and still shared with
+ * [CountryOverlayRendering]'s own Country-level fill via the same [GEOGRAPHIC_STYLE_ROLE_PROPERTY]
+ * tag), three neutral greys when `visited == false`. **Orange still means VISITED/PRESENCE, and
+ * nothing else — an unvisited area rendered here NEVER receives an orange fill, regardless of its
+ * selection role** — see [com.cedervs.worlddiscovery.core.discovery.GeographicAreaVisitedStatus]'s
+ * own doc comment for why visited/unvisited must stay a strictly separate axis from selection
+ * styling. [applyAdministrativeOverlay]'s own parameters carry the full [GeographicAreaVisitedStatus]
+ * (never a bare [GeographicArea] with the visited information already discarded, and never only the
+ * `visited == true` subset the way this file used to filter before this fix) so both dimensions
+ * reach feature-tagging together.
  */
 internal const val ADMIN1_OVERLAY_SOURCE_ID = "admin1-overlay-source"
 internal const val ADMIN1_OVERLAY_FILL_LAYER_ID = "admin1-overlay-fill-layer"
@@ -110,13 +118,13 @@ internal fun isAdmin2OverlayInteractive(zoomLevel: Double): Boolean = zoomLevel 
  * NOT become visible just because France itself is selected, matching this round's own explicit "do
  * not simply make Departments visible everywhere at World/Country scale" requirement.
  *
- * Deliberately does **not** filter which visited Departments become visible down to only the selected
- * Region's own children — [applyAdministrativeOverlay] already renders every visited Department in one
- * shared source/layer pair (a pre-existing, Round 0 scoping decision, unchanged by this fix): a
- * visited-but-unrelated Department elsewhere also becomes visible once any Region is selected. Fixing
- * that would require per-feature (not layer-level) zoom gating, a materially larger change than this
- * round's own physically-observed defect calls for — documented here as a known, accepted limitation,
- * not silently pretended away.
+ * **This zoom-floor decision is now layered on top of the FH-1 runtime hierarchy fix's own
+ * PARENT-SCOPED render-candidate filtering** (see [administrativeRenderCandidates]): the Department
+ * layer's feature set itself is already restricted to the currently-focused Region's own real
+ * children (never all 96 loaded Departments at once), so this zoom floor only ever needs to decide
+ * WHEN that already-scoped handful becomes visible/interactive, never WHICH Departments are in it —
+ * a materially simpler problem than the original "which visited Departments" framing this comment
+ * used to describe, back when every Department nationwide shared one unfiltered feature set.
  */
 internal fun effectiveAdmin2MinZoom(selection: GeographicFocusSelection): Float =
     if (selection.selectedType == GeographicAreaType.ADMIN_1 || selection.selectedType == GeographicAreaType.ADMIN_2) {
@@ -125,20 +133,22 @@ internal fun effectiveAdmin2MinZoom(selection: GeographicFocusSelection): Float 
         ADMIN2_OVERLAY_MIN_ZOOM
     }
 
-/** Applies both the Region and Department overlays from one caller-provided, already-filtered
- * (`visited == true`) snapshot — called from the exact same effect as
+/** Applies both the Region and Department overlays from one caller-provided render-candidate
+ * snapshot (see [administrativeRenderCandidates] — [regionCandidates] is always every loaded Region,
+ * [departmentCandidates] is already parent-scoped to whichever Region is currently focused, or empty
+ * at Country/World view) — called from the exact same effect as
  * [CountryOverlayRendering.applyCountryOverlay]/[applyBasemapAlignedFranceBorder] in
  * `DiscoveryMapView`, never a separate subscription, so all three levels always reflect the same
  * discovery snapshot. */
 internal fun applyAdministrativeOverlay(
     style: Style,
-    visitedRegions: List<GeographicArea>,
-    visitedDepartments: List<GeographicArea>,
+    regionCandidates: List<GeographicAreaVisitedStatus>,
+    departmentCandidates: List<GeographicAreaVisitedStatus>,
     selection: GeographicFocusSelection = GeographicFocusSelection.NONE,
 ) {
     applyAdministrativeOverlayLevel(
         style,
-        visitedRegions,
+        regionCandidates,
         selection,
         ADMIN1_OVERLAY_SOURCE_ID,
         ADMIN1_OVERLAY_FILL_LAYER_ID,
@@ -150,7 +160,7 @@ internal fun applyAdministrativeOverlay(
     )
     applyAdministrativeOverlayLevel(
         style,
-        visitedDepartments,
+        departmentCandidates,
         selection,
         ADMIN2_OVERLAY_SOURCE_ID,
         ADMIN2_OVERLAY_FILL_LAYER_ID,
@@ -162,12 +172,46 @@ internal fun applyAdministrativeOverlay(
     )
 }
 
+/**
+ * **PARENT-SCOPED render candidates (FH-1 runtime hierarchy fix).** Regions render unconditionally —
+ * [admin1Statuses] as-is, every loaded Region, always — because there is only ever one loaded
+ * Country in this round, so "France selected -> expose all 13 Regions" has no narrower parent to
+ * scope against. Departments are different: [admin2Statuses] can hold up to 96 entries, so rendering
+ * it unconditionally would put all 96 on screen at once the moment any Region/Department focus is
+ * active — instead, [departments] is filtered down to only the entries whose own real
+ * [GeographicArea.parentId] equals [focusedAdmin1Id], and is empty whenever no Region is focused
+ * (`focusedAdmin1Id == null`, i.e. Country/World view) — Departments must never appear just because
+ * France itself is selected (unchanged product rule, see [effectiveAdmin2MinZoom]'s own doc
+ * comment). [focusedAdmin1Id] alone (never also checking for a Department frame) is sufficient
+ * because [com.cedervs.worlddiscovery.core.discovery.GeographicArea] Department focus always keeps
+ * its own parent Region frame too (see `AdministrativeAreaNavigation.kt`'s own
+ * `nextAdminFocusStack` doc comment) — this one filter therefore already covers both "a Region is
+ * focused" and "a Department within that Region is focused."
+ */
+internal data class AdministrativeRenderCandidates(
+    val regions: List<GeographicAreaVisitedStatus>,
+    val departments: List<GeographicAreaVisitedStatus>,
+)
+
+internal fun administrativeRenderCandidates(
+    admin1Statuses: List<GeographicAreaVisitedStatus>,
+    admin2Statuses: List<GeographicAreaVisitedStatus>,
+    focusedAdmin1Id: String?,
+): AdministrativeRenderCandidates = AdministrativeRenderCandidates(
+    regions = admin1Statuses,
+    departments = if (focusedAdmin1Id == null) {
+        emptyList()
+    } else {
+        admin2Statuses.filter { status -> status.area.parentId == focusedAdmin1Id }
+    },
+)
+
 @Suppress("LongParameterList") // Mirrors CountryOverlayRendering's own single-level function shape,
 // parametrized over level -- an internal helper, never called with anything but this file's own
 // two levels' constants above.
 private fun applyAdministrativeOverlayLevel(
     style: Style,
-    visitedAreas: List<GeographicArea>,
+    areaStatuses: List<GeographicAreaVisitedStatus>,
     selection: GeographicFocusSelection,
     sourceId: String,
     fillLayerId: String,
@@ -177,7 +221,7 @@ private fun applyAdministrativeOverlayLevel(
     fadeOutStartZoom: Double,
     fadeOutEndZoom: Double,
 ) {
-    val featureCollection = administrativeOverlayFeatureCollection(visitedAreas, selection)
+    val featureCollection = administrativeOverlayFeatureCollection(areaStatuses, selection)
 
     val existingSource = style.getSourceAs<GeoJsonSource>(sourceId)
     if (existingSource != null) {
@@ -200,7 +244,7 @@ private fun applyAdministrativeOverlayLevel(
     style.addLayer(
         LineLayer(outlineLayerId, sourceId)
             .withProperties(
-                PropertyFactory.lineColor(geographicAreaStyleRoleColorExpression()),
+                PropertyFactory.lineColor(administrativeAreaColorExpression()),
                 PropertyFactory.lineWidth(ADMIN_OVERLAY_OUTLINE_WIDTH),
                 PropertyFactory.lineOpacity(fadeOutOpacityExpression(GEOGRAPHIC_OVERLAY_OUTLINE_OPACITY, fadeOutStartZoom, fadeOutEndZoom)),
             )
@@ -221,7 +265,7 @@ private fun administrativeOverlayFillLayer(
 ): FillLayer =
     FillLayer(fillLayerId, sourceId)
         .withProperties(
-            PropertyFactory.fillColor(geographicAreaStyleRoleColorExpression()),
+            PropertyFactory.fillColor(administrativeAreaColorExpression()),
             PropertyFactory.fillOpacity(fadeOutOpacityExpression(GEOGRAPHIC_OVERLAY_FILL_OPACITY, fadeOutStartZoom, fadeOutEndZoom)),
         )
         .apply {
@@ -251,30 +295,34 @@ private fun fadeOutOpacityExpression(baseOpacity: Float, startZoom: Double, endZ
     )
 
 internal fun administrativeOverlayFeatureCollection(
-    visitedAreas: List<GeographicArea>,
+    areaStatuses: List<GeographicAreaVisitedStatus>,
     selection: GeographicFocusSelection = GeographicFocusSelection.NONE,
 ): FeatureCollection {
-    val features = visitedAreas.map { area -> area.toAdministrativeOverlayFeature(selection) }
+    val features = areaStatuses.map { status -> status.toAdministrativeOverlayFeature(selection) }
     return FeatureCollection.fromFeatures(features.toTypedArray())
 }
 
 /** The area's full `MultiPolygon` (every component together, see this file's own doc comment for
  * why) as one GeoJSON Feature, tagged with [ADMIN_OVERLAY_AREA_ID_PROPERTY] — a plain id-string
  * match is all `resolveClickedAdministrativeArea` needs, unlike [CountryOverlayRendering]'s
- * positional `componentIndex` scheme (not needed here: exactly one Feature per area) — and with
+ * positional `componentIndex` scheme (not needed here: exactly one Feature per area) — with
  * [GEOGRAPHIC_STYLE_ROLE_PROPERTY], this area's own [resolveGeographicAreaStyleRole] result against
- * [selection] (see `GeographicHierarchyStyling.kt`). */
-private fun GeographicArea.toAdministrativeOverlayFeature(selection: GeographicFocusSelection): Feature {
-    val mapLibrePolygons = geometry.polygons.map { polygon -> polygon.toMapLibrePolygon() }
+ * [selection] (see `GeographicHierarchyStyling.kt`) — and, since this fix, [ADMIN_OVERLAY_VISITED_PROPERTY],
+ * this status's own real [GeographicAreaVisitedStatus.visited] flag, so rendering an unvisited
+ * candidate can never be styled as if it were visited. */
+private fun GeographicAreaVisitedStatus.toAdministrativeOverlayFeature(selection: GeographicFocusSelection): Feature {
+    val area = this.area
+    val mapLibrePolygons = area.geometry.polygons.map { polygon -> polygon.toMapLibrePolygon() }
     val geoJsonGeometry: Geometry = if (mapLibrePolygons.size == 1) {
         mapLibrePolygons.single()
     } else {
         MultiPolygon.fromPolygons(mapLibrePolygons)
     }
-    val styleRole = resolveGeographicAreaStyleRole(type, id, parentId, selection)
+    val styleRole = resolveGeographicAreaStyleRole(area.type, area.id, area.parentId, selection)
     val properties = JsonObject().apply {
-        addProperty(ADMIN_OVERLAY_AREA_ID_PROPERTY, id)
+        addProperty(ADMIN_OVERLAY_AREA_ID_PROPERTY, area.id)
         addProperty(GEOGRAPHIC_STYLE_ROLE_PROPERTY, styleRole.name)
+        addProperty(ADMIN_OVERLAY_VISITED_PROPERTY, visited.toString())
     }
     return Feature.fromGeometry(geoJsonGeometry, properties)
 }

@@ -10,8 +10,9 @@ import org.junit.Test
 /**
  * Product-level tests for the France Country -> Region (`ADMIN_1`) -> Department (`ADMIN_2`)
  * hierarchy, against the REAL bundled artifacts ([loadFranceAdministrativeAreas]) rather than
- * synthetic geometry — this is what actually proves the generated Nouvelle-Aquitaine/Haute-Vienne
- * data is correct, not just that the generic classifier mechanism works (see
+ * synthetic geometry — this is what actually proves the generated data is correct (originally just
+ * Nouvelle-Aquitaine/Haute-Vienne, now the full metropolitan Region/Department coverage completed in
+ * Phase FH-1), not just that the generic classifier mechanism works (see
  * [ClassifyDiscoveredCellsByGeographicAreasTest] for that).
  *
  * Every coordinate below is a well-known, public city-center location — never a personal GPS trace,
@@ -19,8 +20,8 @@ import org.junit.Test
  * - Limoges (45.8336, 1.2611) — inside Haute-Vienne (department 87) and Nouvelle-Aquitaine.
  * - Poitiers (46.5802, 0.3404) — inside Vienne (department 86) and Nouvelle-Aquitaine, but NOT
  *   Haute-Vienne — the "unrelated department" fixture.
- * - Paris (48.8566, 2.3522) — inside Île-de-France, entirely outside Nouvelle-Aquitaine — the
- *   "unrelated region" fixture.
+ * - Paris (48.8566, 2.3522) — inside Île-de-France, entirely outside Nouvelle-Aquitaine, and (since
+ *   Phase FH-1) inside its own loaded department (75) — the "unrelated region" fixture.
  */
 class FranceAdministrativeHierarchyTest {
 
@@ -121,31 +122,75 @@ class FranceAdministrativeHierarchyTest {
     }
 
     @Test
-    fun `a presence entirely outside Nouvelle-Aquitaine (Paris) leaves every loaded department unvisited`() {
-        // Every loaded ADMIN_2 department belongs to Nouvelle-Aquitaine this round -- a Paris
-        // discovery must skip all of them cleanly (see ClassifyDiscoveredCellsByGeographicAreas'
-        // own doc comment: "no match" is not an error), never a crash and never a false positive.
+    fun `a presence entirely outside Nouvelle-Aquitaine (Paris) visits Paris but no Nouvelle-Aquitaine department`() {
+        // Paris now has its own loaded department (admin2:FR-75, Phase FH-1) -- a Paris discovery
+        // must visit exactly that department and skip every Nouvelle-Aquitaine one cleanly (see
+        // ClassifyDiscoveredCellsByGeographicAreas' own doc comment: "no match" is not an error),
+        // never a crash and never a false positive.
         val departmentStatuses = classifyAreas(listOf(discoveredCell(parisCell)), administrativeAreas.departments)
 
-        assertTrue(departmentStatuses.none { it.visited })
+        val paris = departmentStatuses.single { it.area.id == "admin2:FR-75" }
+        assertTrue("Paris department must be visited", paris.visited)
+        val visitedDepartmentIds = departmentStatuses.filter { it.visited }.map { it.area.id }
+        assertEquals(listOf("admin2:FR-75"), visitedDepartmentIds)
     }
 
     @Test
-    fun `every loaded region and department carries the correct parentId chain`() {
+    fun `every loaded region carries country France as its parent`() {
         administrativeAreas.regions.forEach { region ->
             assertEquals("country:FR", region.parentId)
             assertEquals(GeographicAreaType.ADMIN_1, region.type)
         }
+    }
+
+    @Test
+    fun `every loaded department parentId resolves to one of the loaded regions`() {
+        val regionIds = administrativeAreas.regions.map { it.id }.toSet()
         administrativeAreas.departments.forEach { department ->
-            assertEquals("admin1:FR-NAQ", department.parentId)
             assertEquals(GeographicAreaType.ADMIN_2, department.type)
+            assertTrue(
+                "Department ${department.id} has parentId ${department.parentId} which is not a loaded region",
+                department.parentId in regionIds,
+            )
         }
     }
 
     @Test
-    fun `exactly 13 metropolitan regions and 12 Nouvelle-Aquitaine departments are loaded`() {
+    fun `Nouvelle-Aquitaine's own 12 departments still carry admin1 FR-NAQ as parent`() {
+        val naqDepartmentIds = setOf(
+            "admin2:FR-16", "admin2:FR-17", "admin2:FR-19", "admin2:FR-23", "admin2:FR-24",
+            "admin2:FR-33", "admin2:FR-40", "admin2:FR-47", "admin2:FR-64", "admin2:FR-79",
+            "admin2:FR-86", "admin2:FR-87",
+        )
+        val naqDepartments = administrativeAreas.departments.filter { it.id in naqDepartmentIds }
+
+        assertEquals(12, naqDepartments.size)
+        naqDepartments.forEach { department -> assertEquals("admin1:FR-NAQ", department.parentId) }
+    }
+
+    @Test
+    fun `every metropolitan region has at least one department child`() {
+        val departmentsByParent = administrativeAreas.departments.groupBy { it.parentId }
+
+        administrativeAreas.regions.forEach { region ->
+            val children = departmentsByParent[region.id].orEmpty()
+            assertTrue("Region ${region.id} (${region.displayName}) has no loaded department children", children.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `region and department ids are each globally unique`() {
+        val regionIds = administrativeAreas.regions.map { it.id }
+        val departmentIds = administrativeAreas.departments.map { it.id }
+
+        assertEquals("Region ids must be unique", regionIds.size, regionIds.toSet().size)
+        assertEquals("Department ids must be unique", departmentIds.size, departmentIds.toSet().size)
+    }
+
+    @Test
+    fun `exactly 13 metropolitan regions and 96 metropolitan departments are loaded`() {
         assertEquals(13, administrativeAreas.regions.size)
-        assertEquals(12, administrativeAreas.departments.size)
+        assertEquals(96, administrativeAreas.departments.size)
     }
 }
 

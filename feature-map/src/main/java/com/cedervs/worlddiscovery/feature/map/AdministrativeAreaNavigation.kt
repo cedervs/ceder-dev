@@ -26,9 +26,10 @@ import org.maplibre.geojson.Feature
  * **Hardened the same way**: not interactive at [currentZoomLevel] (per [isInteractive], gating
  * whichever of [isAdmin1OverlayInteractive]/[isAdmin2OverlayInteractive] the caller passes), no
  * feature actually hit, the hit feature carrying no [ADMIN_OVERLAY_AREA_ID_PROPERTY], or that id not
- * matching any area in [candidateAreas] (a stale/foreign feature, a real-but-not-currently-visited
- * area, or a real area excluded by the caller's own parent-scoping filter) — every one of these
- * resolves to `null`, never a crash or a fallback guess.
+ * matching any area in [candidateAreas] (a stale/foreign feature, or a real area excluded by the
+ * caller's own parent-scoping filter — **not** "unvisited," since [candidateAreas] legitimately
+ * includes unvisited areas as of the FH-1 runtime hierarchy fix, see [GeographicClickContext]'s own
+ * doc comment) — every one of these resolves to `null`, never a crash or a fallback guess.
  */
 internal fun resolveClickedAdministrativeArea(
     hitFeatures: List<Feature>,
@@ -319,6 +320,16 @@ internal fun nextGeographicSelectionOutcome(
  * that file's own `currentGeographicFocusLevel`/focus-id computation). This same shape works
  * unchanged for a future multi-country, variable-depth worldwide hierarchy: nothing here assumes
  * "exactly one Country" or "exactly two levels below Country."
+ *
+ * **[regions]/[departments] are the raw, UNSCOPED candidate universe — every loaded Region/Department
+ * regardless of visited state, not a caller-pre-filtered subset** (FH-1 runtime hierarchy fix; these
+ * fields were named `visitedRegions`/`visitedDepartments` before this fix, back when only visited
+ * areas were ever rendered/offered as click candidates at all). [resolveGeographicClick] itself does
+ * the real parent-scoping (see this function's own doc comment) before ever calling
+ * [resolveClickedAdministrativeArea] — callers do not need to pre-filter by parent OR by visited
+ * state; a click can resolve to an unvisited Region/Department exactly as it can to a visited one,
+ * since administrative existence and discovery presence are different concepts (see
+ * [com.cedervs.worlddiscovery.core.discovery.GeographicAreaVisitedStatus]'s own doc comment).
  */
 internal data class GeographicClickContext(
     val currentFocusLevel: GeographicAreaType?,
@@ -330,9 +341,9 @@ internal data class GeographicClickContext(
     val visitedCountryComponents: List<GeographicAreaComponent>,
     val countryAreaId: String,
     val regionHitFeatures: List<Feature>,
-    val visitedRegions: List<GeographicArea>,
+    val regions: List<GeographicArea>,
     val departmentHitFeatures: List<Feature>,
-    val visitedDepartments: List<GeographicArea>,
+    val departments: List<GeographicArea>,
 )
 
 /** What [resolveGeographicClick] resolved a click to — exactly one of the three navigable kinds,
@@ -382,7 +393,7 @@ internal fun resolveGeographicClick(context: GeographicClickContext): Geographic
                 if (component != null) return GeographicClickResolution.CountryComponent(component)
             }
             GeographicAreaType.ADMIN_1 -> {
-                val parentScopedRegions = context.visitedRegions.filter { region -> region.parentId == context.focusedCountryId }
+                val parentScopedRegions = context.regions.filter { region -> region.parentId == context.focusedCountryId }
                 val region = resolveClickedAdministrativeArea(
                     context.regionHitFeatures,
                     parentScopedRegions,
@@ -392,7 +403,7 @@ internal fun resolveGeographicClick(context: GeographicClickContext): Geographic
                 if (region != null) return GeographicClickResolution.Region(region)
             }
             GeographicAreaType.ADMIN_2 -> {
-                val parentScopedDepartments = context.visitedDepartments.filter { department -> department.parentId == context.focusedAdmin1Id }
+                val parentScopedDepartments = context.departments.filter { department -> department.parentId == context.focusedAdmin1Id }
                 val department = resolveClickedAdministrativeArea(
                     context.departmentHitFeatures,
                     parentScopedDepartments,

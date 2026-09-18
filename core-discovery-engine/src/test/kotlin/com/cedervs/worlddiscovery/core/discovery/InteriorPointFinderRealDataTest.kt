@@ -97,6 +97,67 @@ class InteriorPointFinderRealDataTest {
     }
 
     @Test
+    fun `every one of the 96 bundled metropolitan departments has a findable, verified interior point`() {
+        assertEquals(96, administrativeAreas.departments.size)
+        for (department in administrativeAreas.departments) {
+            val point = findVerifiedInteriorPoint(department)
+            assertNotNull("expected a verified interior point for ${department.id}", point)
+        }
+    }
+
+    @Test
+    fun `every department's verified interior point is genuinely inside that department's own real geometry`() {
+        for (department in administrativeAreas.departments) {
+            val point = findVerifiedInteriorPoint(department)!!
+            assertTrue(
+                "the verified interior point for ${department.id} must actually be inside its own geometry",
+                PointInPolygonClassifier.contains(department.geometry, point),
+            )
+        }
+    }
+
+    @Test
+    fun `every department's verified interior point matches EXACTLY ONE real France Country component`() {
+        for (department in administrativeAreas.departments) {
+            val point = findVerifiedInteriorPoint(department)!!
+            val matchingComponents = franceArea.components().filter { component ->
+                PointInPolygonClassifier.contains(component.polygon, point)
+            }
+            assertEquals(
+                "expected ${department.id}'s verified point to match exactly one Country component, matched ${matchingComponents.map { it.componentIndex }}",
+                1,
+                matchingComponents.size,
+            )
+        }
+    }
+
+    @Test
+    fun `Corse's two departments map to the Corsica component -- every other department maps to the mainland component`() {
+        val corseDepartmentIds = setOf("admin2:FR-2A", "admin2:FR-2B")
+        val corseDepartments = administrativeAreas.departments.filter { it.id in corseDepartmentIds }
+        assertEquals(2, corseDepartments.size)
+        for (department in corseDepartments) {
+            val point = findVerifiedInteriorPoint(department)!!
+            assertTrue("${department.id} must map to the Corsica component", PointInPolygonClassifier.contains(corsicaComponent.polygon, point))
+            assertTrue("${department.id} must NOT map to the mainland component", !PointInPolygonClassifier.contains(mainlandComponent.polygon, point))
+        }
+
+        val otherDepartments = administrativeAreas.departments.filter { it.id !in corseDepartmentIds }
+        assertEquals(94, otherDepartments.size)
+        for (department in otherDepartments) {
+            val point = findVerifiedInteriorPoint(department)!!
+            assertTrue(
+                "${department.id} must map to the mainland component",
+                PointInPolygonClassifier.contains(mainlandComponent.polygon, point),
+            )
+            assertTrue(
+                "${department.id} must NOT map to the Corsica component",
+                !PointInPolygonClassifier.contains(corsicaComponent.polygon, point),
+            )
+        }
+    }
+
+    @Test
     fun `end-to-end -- promoteAncestorComponentPresence, driven by the real interior-point finder, promotes exactly the mainland component for a visited mainland region`() {
         val nouvelleAquitaine = administrativeAreas.regions.single { it.id == "admin1:FR-NAQ" }
         val visitedStatus = GeographicAreaVisitedStatus(nouvelleAquitaine, visited = true, certifiedPresent = false, nonCertifiedPresent = true)

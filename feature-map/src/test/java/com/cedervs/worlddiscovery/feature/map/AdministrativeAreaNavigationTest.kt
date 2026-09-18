@@ -4,6 +4,7 @@ import com.cedervs.worlddiscovery.core.discovery.Coordinate
 import com.cedervs.worlddiscovery.core.discovery.GeographicArea
 import com.cedervs.worlddiscovery.core.discovery.GeographicAreaProvenance
 import com.cedervs.worlddiscovery.core.discovery.GeographicAreaType
+import com.cedervs.worlddiscovery.core.discovery.GeographicAreaVisitedStatus
 import com.cedervs.worlddiscovery.core.discovery.GeographicMultiPolygon
 import com.cedervs.worlddiscovery.core.discovery.GeographicPolygon
 import com.cedervs.worlddiscovery.core.discovery.components
@@ -59,7 +60,7 @@ class AdministrativeAreaNavigationTest {
 
     private val regionA = testArea("admin1:FR-A", GeographicAreaType.ADMIN_1, "country:FR", ring(0.0 to 44.0, 1.0 to 44.0, 1.0 to 45.0, 0.0 to 45.0))
     private val regionB = testArea("admin1:FR-B", GeographicAreaType.ADMIN_1, "country:FR", ring(2.0 to 44.0, 3.0 to 44.0, 3.0 to 45.0, 2.0 to 45.0))
-    private val visitedRegions = listOf(regionA, regionB)
+    private val regions = listOf(regionA, regionB)
     private val departmentInA = testArea("admin2:FR-A1", GeographicAreaType.ADMIN_2, regionA.id, ring(0.1 to 44.1, 0.2 to 44.1, 0.2 to 44.2, 0.1 to 44.2))
     private val departmentInB = testArea("admin2:FR-B1", GeographicAreaType.ADMIN_2, regionB.id, ring(2.1 to 44.1, 2.2 to 44.1, 2.2 to 44.2, 2.1 to 44.2))
 
@@ -77,28 +78,28 @@ class AdministrativeAreaNavigationTest {
 
     @Test
     fun `no hit features resolves to no navigation`() {
-        val result = resolveClickedAdministrativeArea(emptyList(), visitedRegions, interactiveZoom, alwaysInteractive)
+        val result = resolveClickedAdministrativeArea(emptyList(), regions, interactiveZoom, alwaysInteractive)
 
         assertNull(result)
     }
 
     @Test
     fun `a hit feature whose areaId matches a candidate area resolves to that exact area`() {
-        val result = resolveClickedAdministrativeArea(listOf(featureWith(regionA.id)), visitedRegions, interactiveZoom, alwaysInteractive)
+        val result = resolveClickedAdministrativeArea(listOf(featureWith(regionA.id)), regions, interactiveZoom, alwaysInteractive)
 
         assertEquals(regionA, result)
     }
 
     @Test
     fun `a hit feature with no areaId property fails safely -- no navigation, never a crash`() {
-        val result = resolveClickedAdministrativeArea(listOf(featureWith(null)), visitedRegions, interactiveZoom, alwaysInteractive)
+        val result = resolveClickedAdministrativeArea(listOf(featureWith(null)), regions, interactiveZoom, alwaysInteractive)
 
         assertNull(result)
     }
 
     @Test
     fun `a hit feature whose areaId matches no candidate area fails safely`() {
-        val result = resolveClickedAdministrativeArea(listOf(featureWith("admin1:FR-UNKNOWN")), visitedRegions, interactiveZoom, alwaysInteractive)
+        val result = resolveClickedAdministrativeArea(listOf(featureWith("admin1:FR-UNKNOWN")), regions, interactiveZoom, alwaysInteractive)
 
         assertNull(result)
     }
@@ -114,7 +115,7 @@ class AdministrativeAreaNavigationTest {
 
     @Test
     fun `a faded-out (non-interactive) overlay never resolves to an area, even with an otherwise-valid hit`() {
-        val result = resolveClickedAdministrativeArea(listOf(featureWith(regionA.id)), visitedRegions, interactiveZoom, neverInteractive)
+        val result = resolveClickedAdministrativeArea(listOf(featureWith(regionA.id)), regions, interactiveZoom, neverInteractive)
 
         assertNull(result)
     }
@@ -374,9 +375,9 @@ class AdministrativeAreaNavigationTest {
         visitedCountryComponents = listOf(mainlandComponent),
         countryAreaId = franceLikeArea.id,
         regionHitFeatures = listOf(administrativeHitFeature(nouvelleAquitaineLike)),
-        visitedRegions = listOf(nouvelleAquitaineLike, ileDeFranceLike),
+        regions = listOf(nouvelleAquitaineLike, ileDeFranceLike),
         departmentHitFeatures = listOf(administrativeHitFeature(hauteVienneLike)),
-        visitedDepartments = listOf(hauteVienneLike),
+        departments = listOf(hauteVienneLike),
     )
 
     @Test
@@ -445,9 +446,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = listOf(mainlandComponent),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = emptyList(),
-            visitedRegions = listOf(nouvelleAquitaineLike),
+            regions = listOf(nouvelleAquitaineLike),
             departmentHitFeatures = emptyList(),
-            visitedDepartments = listOf(hauteVienneLike),
+            departments = listOf(hauteVienneLike),
         )
 
         assertNull(resolveGeographicClick(emptyContext))
@@ -470,9 +471,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = emptyList(),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = emptyList(), // no Region hit at this point -- proves this isn't accidentally resolving as a Region fallback either
-            visitedRegions = visitedRegions,
+            regions = regions,
             departmentHitFeatures = listOf(administrativeHitFeature(departmentInB)), // parentId = regionB.id, NOT regionA.id
-            visitedDepartments = listOf(departmentInB),
+            departments = listOf(departmentInB),
         )
 
         assertNull(
@@ -493,9 +494,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = emptyList(),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = emptyList(),
-            visitedRegions = visitedRegions,
+            regions = regions,
             departmentHitFeatures = listOf(administrativeHitFeature(departmentInB)),
-            visitedDepartments = listOf(departmentInA, departmentInB),
+            departments = listOf(departmentInA, departmentInB),
         )
 
         assertNull(
@@ -516,9 +517,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = emptyList(),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = emptyList(),
-            visitedRegions = visitedRegions,
+            regions = regions,
             departmentHitFeatures = listOf(administrativeHitFeature(departmentInA)),
-            visitedDepartments = listOf(departmentInA, departmentInB),
+            departments = listOf(departmentInA, departmentInB),
         )
 
         assertEquals(GeographicClickResolution.Department(departmentInA), resolveGeographicClick(context))
@@ -536,9 +537,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = emptyList(),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = listOf(administrativeHitFeature(regionB)),
-            visitedRegions = visitedRegions,
+            regions = regions,
             departmentHitFeatures = emptyList(), // no Department hit -- proves Region-level resolution, not a lucky Department fallback
-            visitedDepartments = listOf(departmentInA, departmentInB),
+            departments = listOf(departmentInA, departmentInB),
         )
 
         val resolution = resolveGeographicClick(context)
@@ -563,9 +564,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = emptyList(),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = emptyList(),
-            visitedRegions = visitedRegions,
+            regions = regions,
             departmentHitFeatures = listOf(administrativeHitFeature(anotherDepartmentInA)),
-            visitedDepartments = listOf(departmentInA, anotherDepartmentInA),
+            departments = listOf(departmentInA, anotherDepartmentInA),
         )
 
         val resolution = resolveGeographicClick(context)
@@ -599,9 +600,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = emptyList(),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = emptyList(),
-            visitedRegions = visitedRegions,
+            regions = regions,
             departmentHitFeatures = listOf(administrativeHitFeature(malformedDepartment)),
-            visitedDepartments = listOf(malformedDepartment),
+            departments = listOf(malformedDepartment),
         )
 
         assertNull(
@@ -627,9 +628,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = listOf(mainlandComponent, corsicaLikeComponent),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = emptyList(), // no Region anywhere near this tap
-            visitedRegions = visitedRegions,
+            regions = regions,
             departmentHitFeatures = emptyList(),
-            visitedDepartments = emptyList(),
+            departments = emptyList(),
         )
 
         assertEquals(GeographicClickResolution.CountryComponent(corsicaLikeComponent), resolveGeographicClick(context))
@@ -647,9 +648,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = listOf(mainlandComponent, corsicaLikeComponent),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = listOf(administrativeHitFeature(nouvelleAquitaineLike)),
-            visitedRegions = listOf(nouvelleAquitaineLike),
+            regions = listOf(nouvelleAquitaineLike),
             departmentHitFeatures = emptyList(),
-            visitedDepartments = emptyList(),
+            departments = emptyList(),
         )
 
         assertEquals(GeographicClickResolution.Region(nouvelleAquitaineLike), resolveGeographicClick(context))
@@ -671,9 +672,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = listOf(mainlandComponent),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = emptyList(), // no Region hit at all -- the user zoomed out past Region data
-            visitedRegions = visitedRegions,
+            regions = regions,
             departmentHitFeatures = emptyList(),
-            visitedDepartments = emptyList(),
+            departments = emptyList(),
         )
 
         assertEquals(GeographicClickResolution.CountryComponent(mainlandComponent), resolveGeographicClick(context))
@@ -694,9 +695,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = listOf(mainlandComponent),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = emptyList(),
-            visitedRegions = visitedRegions,
+            regions = regions,
             departmentHitFeatures = emptyList(),
-            visitedDepartments = listOf(departmentInA),
+            departments = listOf(departmentInA),
         )
 
         assertEquals(GeographicClickResolution.CountryComponent(mainlandComponent), resolveGeographicClick(context))
@@ -714,9 +715,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = emptyList(),
             countryAreaId = franceLikeArea.id,
             departmentHitFeatures = emptyList(), // no Department hit -- proves this isn't a lucky Department resolve
-            visitedDepartments = listOf(departmentInA),
+            departments = listOf(departmentInA),
             regionHitFeatures = listOf(administrativeHitFeature(regionA)),
-            visitedRegions = visitedRegions,
+            regions = regions,
         )
 
         assertEquals(GeographicClickResolution.Region(regionA), resolveGeographicClick(context))
@@ -734,9 +735,9 @@ class AdministrativeAreaNavigationTest {
             visitedCountryComponents = listOf(mainlandComponent),
             countryAreaId = franceLikeArea.id,
             regionHitFeatures = listOf(administrativeHitFeature(regionA)),
-            visitedRegions = visitedRegions,
+            regions = regions,
             departmentHitFeatures = listOf(administrativeHitFeature(departmentInA)),
-            visitedDepartments = listOf(departmentInA),
+            departments = listOf(departmentInA),
         )
 
         assertEquals(GeographicClickResolution.Department(departmentInA), resolveGeographicClick(context))
@@ -861,5 +862,77 @@ class AdministrativeAreaNavigationTest {
             worldCamera,
             outcome.nextCountryFocusReturnCamera,
         )
+    }
+
+    // ==============================================================================================
+    // FH-1 runtime hierarchy fix -- E/F: click resolution must be able to select an UNVISITED Region
+    // or Department. resolveGeographicClick/resolveClickedAdministrativeArea themselves never had a
+    // "visited" concept at all (GeographicArea carries no visited flag) -- the physically-observed
+    // defect was entirely in the CALLER (DiscoveryMapView/MapScreen), which used to narrow the
+    // candidate list down to visited==true areas BEFORE it ever reached this click-resolution layer.
+    // These tests make that fix's real-world consequence explicit: an area sourced from an unvisited
+    // GeographicAreaVisitedStatus resolves exactly like any other real candidate.
+    // ==============================================================================================
+
+    @Test
+    fun `E -- click resolution selects a Region sourced from an UNVISITED GeographicAreaVisitedStatus, exactly like any other candidate`() {
+        val unvisitedRegionStatus = GeographicAreaVisitedStatus(regionA, visited = false, certifiedPresent = false, nonCertifiedPresent = false)
+        val context = GeographicClickContext(
+            currentFocusLevel = GeographicAreaType.COUNTRY,
+            focusedCountryId = franceLikeArea.id,
+            focusedAdmin1Id = null,
+            focusedAdmin2Id = null,
+            zoomLevel = interactiveZoom,
+            countryHitFeatures = emptyList(),
+            visitedCountryComponents = emptyList(),
+            countryAreaId = franceLikeArea.id,
+            regionHitFeatures = listOf(administrativeHitFeature(regionA)),
+            regions = listOf(unvisitedRegionStatus.area, regionB),
+            departmentHitFeatures = emptyList(),
+            departments = emptyList(),
+        )
+
+        assertEquals(GeographicClickResolution.Region(regionA), resolveGeographicClick(context))
+    }
+
+    @Test
+    fun `F -- click resolution selects a Department sourced from an UNVISITED GeographicAreaVisitedStatus, exactly like any other candidate`() {
+        val unvisitedDepartmentStatus = GeographicAreaVisitedStatus(departmentInA, visited = false, certifiedPresent = false, nonCertifiedPresent = false)
+        val context = GeographicClickContext(
+            currentFocusLevel = GeographicAreaType.ADMIN_1,
+            focusedCountryId = franceLikeArea.id,
+            focusedAdmin1Id = regionA.id,
+            focusedAdmin2Id = null,
+            zoomLevel = interactiveZoom,
+            countryHitFeatures = emptyList(),
+            visitedCountryComponents = emptyList(),
+            countryAreaId = franceLikeArea.id,
+            regionHitFeatures = emptyList(),
+            regions = regions,
+            departmentHitFeatures = listOf(administrativeHitFeature(departmentInA)),
+            departments = listOf(unvisitedDepartmentStatus.area, departmentInB),
+        )
+
+        assertEquals(GeographicClickResolution.Department(departmentInA), resolveGeographicClick(context))
+    }
+
+    @Test
+    fun `I -- existing Nouvelle-Aquitaine to Haute-Vienne click sequence still resolves correctly, unaffected by the FH-1 candidate-universe fix`() {
+        // This is the exact same World -> France -> Nouvelle-Aquitaine -> Haute-Vienne sequence
+        // already proven above ("the full World to France to Nouvelle-Aquitaine to Haute-Vienne
+        // resolution sequence") -- repeated explicitly here as the FH-1 regression's own required
+        // "existing Nouvelle-Aquitaine/Haute-Vienne behavior remains valid" proof point.
+        val step1 = resolveGeographicClick(fullyAmbiguousClickContext(currentFocusLevel = null))
+        assertEquals(GeographicClickResolution.CountryComponent(mainlandComponent), step1)
+
+        val step2 = resolveGeographicClick(
+            fullyAmbiguousClickContext(currentFocusLevel = GeographicAreaType.COUNTRY, focusedCountryId = franceLikeArea.id),
+        )
+        assertEquals(GeographicClickResolution.Region(nouvelleAquitaineLike), step2)
+
+        val step3 = resolveGeographicClick(
+            fullyAmbiguousClickContext(currentFocusLevel = GeographicAreaType.ADMIN_1, focusedAdmin1Id = nouvelleAquitaineLike.id),
+        )
+        assertEquals(GeographicClickResolution.Department(hauteVienneLike), step3)
     }
 }

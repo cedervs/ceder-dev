@@ -3,6 +3,7 @@ package com.cedervs.worlddiscovery.feature.map
 import com.cedervs.worlddiscovery.core.discovery.GeographicAreaType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -192,13 +193,54 @@ class GeographicHierarchyStylingTest {
         assertNotEquals(GeographicAreaStyleRole.SELECTED.fillColorHex(), GeographicAreaStyleRole.ANCESTOR_CONTEXT.fillColorHex())
     }
 
-    // geographicAreaStyleRoleColorExpression itself is NOT exercised here: it calls
-    // android.graphics.Color.parseColor internally, a real Android framework method with no body on
-    // this project's plain-JVM manual verification classpath (the bundled android.jar is a stub jar --
-    // every method throws "Stub!" at runtime, confirmed empirically). This is a real Android API that
-    // only executes correctly on-device or under Robolectric, neither available in this toolchain --
-    // matches this whole module's established pattern (see CountryOverlayFillInsertionTarget's own
-    // doc comment) of keeping real Style/Layer/Color construction behind a seam rather than unit-
-    // testing it directly. resolveGeographicAreaStyleRole above is the actual decision logic and is
-    // exhaustively covered without touching any Android stub.
+    // geographicAreaStyleRoleColorExpression/administrativeAreaColorExpression themselves are NOT
+    // exercised here: they call android.graphics.Color.parseColor internally, a real Android
+    // framework method with no body on this project's plain-JVM manual verification classpath (the
+    // bundled android.jar is a stub jar -- every method throws "Stub!" at runtime, confirmed
+    // empirically). This is a real Android API that only executes correctly on-device or under
+    // Robolectric, neither available in this toolchain -- matches this whole module's established
+    // pattern (see CountryOverlayFillInsertionTarget's own doc comment) of keeping real
+    // Style/Layer/Color construction behind a seam rather than unit-testing it directly.
+    // resolveGeographicAreaStyleRole above and administrativeFillColorHex below are the actual
+    // decision logic and are exhaustively covered without touching any Android stub.
+
+    // ==========================================================================================
+    // FH-1 runtime hierarchy fix -- administrativeFillColorHex: the combined role+visited color
+    // decision. Orange (the three colors already covered above) must ONLY ever be picked when
+    // visited == true; unvisited must ALWAYS be one of the three neutral greys, regardless of role.
+    // ==========================================================================================
+
+    @Test
+    fun `visited administrativeFillColorHex matches the plain role color exactly, for all three roles`() {
+        for (role in GeographicAreaStyleRole.entries) {
+            assertEquals(role.fillColorHex(), administrativeFillColorHex(role, visited = true))
+        }
+    }
+
+    @Test
+    fun `unvisited administrativeFillColorHex never equals any of the three visited (orange) colors, for all three roles`() {
+        val orangeColors = GeographicAreaStyleRole.entries.map { it.fillColorHex() }.toSet()
+
+        for (role in GeographicAreaStyleRole.entries) {
+            val unvisitedColor = administrativeFillColorHex(role, visited = false)
+            assertTrue(
+                "unvisited $role must never be an orange visited-color, got $unvisitedColor",
+                unvisitedColor !in orangeColors,
+            )
+        }
+    }
+
+    @Test
+    fun `the three unvisited colors are themselves mutually distinct -- SELECTED still reads more prominent than ANCESTOR_CONTEXT`() {
+        val unvisitedColors = GeographicAreaStyleRole.entries.map { administrativeFillColorHex(it, visited = false) }.toSet()
+        assertEquals(3, unvisitedColors.size)
+    }
+
+    @Test
+    fun `visited and unvisited are independent of role -- SELECTED visited differs from SELECTED unvisited`() {
+        assertNotEquals(
+            administrativeFillColorHex(GeographicAreaStyleRole.SELECTED, visited = true),
+            administrativeFillColorHex(GeographicAreaStyleRole.SELECTED, visited = false),
+        )
+    }
 }

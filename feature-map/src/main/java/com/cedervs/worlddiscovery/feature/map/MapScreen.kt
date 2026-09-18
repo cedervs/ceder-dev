@@ -71,15 +71,15 @@ fun MapScreen(
     val visitedFranceComponents = readState.franceComponents
         .filter { componentStatus -> componentStatus.visited }
         .map { componentStatus -> componentStatus.component }
-    // Country -> Region -> Department: same "only ever pass the already-visited subset through to
-    // rendering/navigation" rule as visitedFranceComponents above -- see
-    // AdministrativeOverlayRendering.kt's own doc comment.
-    val visitedAdmin1Areas = readState.franceAdmin1Statuses
-        .filter { status -> status.visited }
-        .map { status -> status.area }
-    val visitedAdmin2Areas = readState.franceAdmin2Statuses
-        .filter { status -> status.visited }
-        .map { status -> status.area }
+    // Country -> Region -> Department. UNLIKE visitedFranceComponents above, these are NOT filtered
+    // to visited==true here (FH-1 runtime hierarchy fix): administrative EXISTENCE and discovery
+    // PRESENCE are different concepts -- an unvisited Region/Department must remain navigable, so the
+    // complete GeographicAreaVisitedStatus lists (area + visited flag together) pass straight through
+    // to DiscoveryMapView, which owns the current focus/selection state needed to do the real
+    // PARENT-SCOPED render-candidate filtering (see AdministrativeOverlayRendering.kt's own
+    // administrativeRenderCandidates) -- MapScreen itself stays selection-agnostic, exactly as before.
+    val admin1Statuses = readState.franceAdmin1Statuses
+    val admin2Statuses = readState.franceAdmin2Statuses
     // Globally-derived (not yet Department-clipped) route segments -- see DiscoveredRoute.kt's own
     // doc comment. DiscoveryMapView itself performs the Department-scoped clipping, since it's the
     // one place that already knows the current geographic-focus selection.
@@ -132,8 +132,8 @@ fun MapScreen(
                 geometries = geometries,
                 franceAreaId = franceAreaId,
                 visitedFranceComponents = visitedFranceComponents,
-                visitedAdmin1Areas = visitedAdmin1Areas,
-                visitedAdmin2Areas = visitedAdmin2Areas,
+                admin1Statuses = admin1Statuses,
+                admin2Statuses = admin2Statuses,
                 routeSegments = routeSegments,
                 currentPosition = currentPosition,
                 modifier = Modifier.weight(1f).fillMaxWidth(),

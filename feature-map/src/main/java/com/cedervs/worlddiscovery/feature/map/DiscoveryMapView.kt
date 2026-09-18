@@ -24,9 +24,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.LifecycleEventObserver
 import com.cedervs.worlddiscovery.core.discovery.DiscoveredCellGeometry
-import com.cedervs.worlddiscovery.core.discovery.GeographicArea
 import com.cedervs.worlddiscovery.core.discovery.GeographicAreaComponent
 import com.cedervs.worlddiscovery.core.discovery.GeographicAreaType
+import com.cedervs.worlddiscovery.core.discovery.GeographicAreaVisitedStatus
 import com.cedervs.worlddiscovery.core.discovery.RouteSegment
 import com.cedervs.worlddiscovery.core.discovery.clipRouteSegmentsToArea
 import com.cedervs.worlddiscovery.core.location.LocationObservation
@@ -180,10 +180,15 @@ private const val DEV_ONLY_DEMO_STYLE_URL = "https://tiles.openfreemap.org/style
  * Applied from the same effect as [applyCountryOverlay] below, never a separate subscription.
  *
  * ## Region/Department focus — additive, on top of Country focus, never merged into it
- * [visitedAdmin1Areas]/[visitedAdmin2Areas] extend the same "click the visited overlay, fit its
- * bounds, remember how to get back" idea one and two levels below Country — see
- * `AdministrativeOverlayRendering.kt`/`AdministrativeAreaNavigation.kt`/
- * `AdministrativeFocusStateHolder.kt`.
+ * [admin1Statuses]/[admin2Statuses] extend the same "click the overlay, fit its bounds, remember how
+ * to get back" idea one and two levels below Country — see `AdministrativeOverlayRendering.kt`/
+ * `AdministrativeAreaNavigation.kt`/`AdministrativeFocusStateHolder.kt`. **FH-1 runtime hierarchy
+ * fix: these carry EVERY loaded Region/Department, not only visited ones** — administrative
+ * existence and discovery presence are different concepts, so an unvisited Region/Department must
+ * remain navigable. [administrativeRenderCandidates] does the actual PARENT-SCOPED filtering (all 13
+ * Regions always render; Departments are restricted to whichever Region is currently focused) right
+ * before rendering, in the same effect that calls [applyAdministrativeOverlay] below — see that
+ * function's own doc comment for why Regions and Departments need different scoping rules.
  *
  * **Click resolution is hierarchy-aware AND parent-scoped, not priority-ordered and not geographic-
  * overlap-only.** [currentGeographicFocusLevel] reads whichever level is currently focused (or
@@ -248,8 +253,8 @@ fun DiscoveryMapView(
     geometries: List<DiscoveredCellGeometry>,
     franceAreaId: String,
     visitedFranceComponents: List<GeographicAreaComponent>,
-    visitedAdmin1Areas: List<GeographicArea>,
-    visitedAdmin2Areas: List<GeographicArea>,
+    admin1Statuses: List<GeographicAreaVisitedStatus>,
+    admin2Statuses: List<GeographicAreaVisitedStatus>,
     routeSegments: List<RouteSegment>,
     currentPosition: LocationObservation?,
     modifier: Modifier = Modifier,
@@ -266,8 +271,8 @@ fun DiscoveryMapView(
     val mapClickListenerRegistration = remember { MapClickListenerRegistration() }
     val currentFranceAreaId by rememberUpdatedState(franceAreaId)
     val currentVisitedFranceComponents by rememberUpdatedState(visitedFranceComponents)
-    val currentVisitedAdmin1Areas by rememberUpdatedState(visitedAdmin1Areas)
-    val currentVisitedAdmin2Areas by rememberUpdatedState(visitedAdmin2Areas)
+    val currentAdmin1Statuses by rememberUpdatedState(admin1Statuses)
+    val currentAdmin2Statuses by rememberUpdatedState(admin2Statuses)
 
     // Composition-local, single nullable slot: non-null means a country-component focus is active,
     // and holds the camera to return to. Initialized from -- and, on every change, written through
@@ -418,9 +423,14 @@ fun DiscoveryMapView(
                         visitedCountryComponents = currentVisitedFranceComponents,
                         countryAreaId = currentFranceAreaId,
                         regionHitFeatures = map.queryRenderedFeatures(screenPoint, ADMIN1_OVERLAY_FILL_LAYER_ID),
-                        visitedRegions = currentVisitedAdmin1Areas,
+                        // Every loaded Region/Department, regardless of visited state -- resolveGeographicClick
+                        // itself does the real PARENT-SCOPING (AdministrativeAreaNavigation.kt's own doc
+                        // comment) before ever matching against a hit feature, and hit features themselves are
+                        // already bounded to whatever administrativeRenderCandidates actually rendered (see the
+                        // styling effect below), so passing the full lists here is both correct and simple.
+                        regions = currentAdmin1Statuses.map { status -> status.area },
                         departmentHitFeatures = map.queryRenderedFeatures(screenPoint, ADMIN2_OVERLAY_FILL_LAYER_ID),
-                        visitedDepartments = currentVisitedAdmin2Areas,
+                        departments = currentAdmin2Statuses.map { status -> status.area },
                     )
 
                     val resolution = resolveGeographicClick(clickContext)
@@ -460,7 +470,7 @@ fun DiscoveryMapView(
     // change alone (no new discovery) must still re-tag and re-render every feature's styleRole. Also
     // keyed on routeSegments (new discovery data can change the derived route independently of any
     // focus/hierarchy change) -- see RouteOverlayRendering.kt's own doc comment.
-    LaunchedEffect(mapLibreMap, visitedFranceComponents, visitedAdmin1Areas, visitedAdmin2Areas, adminFocusStack, countryFocusReturnCamera, routeSegments) {
+    LaunchedEffect(mapLibreMap, visitedFranceComponents, admin1Statuses, admin2Statuses, adminFocusStack, countryFocusReturnCamera, routeSegments) {
         if (controller.isDestroyed) return@LaunchedEffect
         val style = mapLibreMap?.style ?: return@LaunchedEffect
         val selection = currentGeographicFocusSelection()
@@ -475,14 +485,23 @@ fun DiscoveryMapView(
         )
         // Region/Department overlay -- same effect/single-snapshot principle, see
         // AdministrativeOverlayRendering.kt's own doc comment. Never touches the Country overlay's
-        // own source/layers above.
-        applyAdministrativeOverlay(style, visitedAdmin1Areas, visitedAdmin2Areas, selection)
+        // own source/layers above. PARENT-SCOPED render candidates (FH-1 runtime hierarchy fix):
+        // every loaded Region always renders (all 13, visited or not); Departments are restricted to
+        // whichever Region is currently focused (empty at Country/World view) -- see
+        // administrativeRenderCandidates's own doc comment for why this never renders all 96
+        // Departments at once.
+        val renderCandidates = administrativeRenderCandidates(admin1Statuses, admin2Statuses, currentFocusedAdmin1Id())
+        applyAdministrativeOverlay(style, renderCandidates.regions, renderCandidates.departments, selection)
         // Department-level route visualization -- see RouteOverlayRendering.kt's own doc comment.
         // Only ever non-empty while an ADMIN_2 is the actual current selection (never at Region/
         // Country/World scale, per this round's own explicit "no blue spaghetti clutter" requirement)
         // -- clipped to that specific Department's own real geometry, never every route in France.
+        // Looked up from the COMPLETE admin2Statuses (not renderCandidates.departments) since a
+        // selected Department must resolve its own geometry for clipping regardless of visited state
+        // -- an unvisited selected Department simply clips to naturally-empty route data, never fails
+        // to resolve at all (FH-1 runtime hierarchy fix).
         val selectedDepartmentId = currentFocusedAdmin2Id()
-        val selectedDepartmentArea = selectedDepartmentId?.let { id -> visitedAdmin2Areas.find { it.id == id } }
+        val selectedDepartmentArea = selectedDepartmentId?.let { id -> admin2Statuses.find { status -> status.area.id == id }?.area }
         val departmentRouteSegments = if (selectedDepartmentArea != null) {
             clipRouteSegmentsToArea(routeSegments, selectedDepartmentArea)
         } else {

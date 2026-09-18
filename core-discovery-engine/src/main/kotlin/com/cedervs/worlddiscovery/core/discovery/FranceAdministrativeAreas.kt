@@ -10,15 +10,15 @@ package com.cedervs.worlddiscovery.core.discovery
  * see `GeographicArea.kt`'s own doc comment for why `parentId` is a single optional link, not a
  * hard-coded chain, precisely so this extension needs no new domain type.
  *
- * **Scope this round: all 13 metropolitan regions, but only Nouvelle-Aquitaine's 12 departments.**
- * This is a deliberate, documented **data-population** scoping decision, not an architecture limit:
+ * **Full metropolitan coverage: all 13 metropolitan regions and all 96 of their departments.**
  * [ClassifyDiscoveredCellsByGeographicAreas]/`AdministrativeOverlayRendering.kt`/
  * `AdministrativeAreaNavigation.kt` all operate generically over whatever `List<GeographicArea>` is
- * loaded here and know nothing about which regions/departments exist. Populating the remaining 12
- * regions' departments is a mechanical follow-up — regenerate more artifacts with
- * `tools/geo/GenerateFranceAdministrativeReference.kt` and add their resource paths below — not a
- * code change. See `PROJECT_STATUS.md` for why this round's real-device validation only needs one
- * region proven end-to-end (Nouvelle-Aquitaine / Haute-Vienne, matching this round's required tests).
+ * loaded here and know nothing about which regions/departments exist — completing the remaining 11
+ * regions' departments (Phase FH-1) was a mechanical follow-up of regenerating more artifacts with
+ * `tools/geo/GenerateFranceAdministrativeReference.kt` and adding their resource paths below, exactly
+ * as this doc comment already predicted; no hierarchy/classification/rendering/navigation code
+ * changed. See `PROJECT_STATUS.md` for physical-validation status (still partial — data completion is
+ * not itself on-device validation).
  *
  * **French overseas regions/departments are NOT included** (Guadeloupe, Martinique, Guyane, La
  * Réunion, Mayotte) — explicitly out of scope this round (`CLAUDE.md`'s France-first, no-Europe/
@@ -29,9 +29,8 @@ package com.cedervs.worlddiscovery.core.discovery
  *
  * **Corse is included as a region** (`admin1:FR-20R` — Corsica's real ISO 3166-2 code; it is a
  * *collectivité territoriale unique*, not a standard region, but functions as one at this level of
- * the hierarchy) with no departments loaded under it this round (Corse's own two departments,
- * Corse-du-Sud/Haute-Corse, are PLANNED-NOT-IMPLEMENTED, same as every other non-Nouvelle-Aquitaine
- * region's departments).
+ * the hierarchy) with its own two departments loaded like any other region's — Corse-du-Sud
+ * (`admin2:FR-2A`) and Haute-Corse (`admin2:FR-2B`) — no special-cased architecture.
  */
 data class FranceAdministrativeAreas(
     val regions: List<GeographicArea>,
@@ -56,9 +55,70 @@ private val FRANCE_ADMIN_1_RESOURCE_PATHS = listOf(
     "/geo/france/regions/corse.json",
 )
 
-/** Nouvelle-Aquitaine's 12 department artifacts — the only region with department-level data
- * populated this round. See this file's own doc comment for why, and how to extend it. */
+/** All 96 metropolitan department artifacts, grouped by region in the same order as
+ * [FRANCE_ADMIN_1_RESOURCE_PATHS] above — see this file's own doc comment and `tools/geo/README.md`
+ * for the exact OSM relation each was generated from. */
 private val FRANCE_ADMIN_2_RESOURCE_PATHS = listOf(
+    // Île-de-France
+    "/geo/france/departments/paris.json",
+    "/geo/france/departments/seine-et-marne.json",
+    "/geo/france/departments/yvelines.json",
+    "/geo/france/departments/essonne.json",
+    "/geo/france/departments/hauts-de-seine.json",
+    "/geo/france/departments/seine-saint-denis.json",
+    "/geo/france/departments/val-de-marne.json",
+    "/geo/france/departments/val-doise.json",
+    // Centre-Val de Loire
+    "/geo/france/departments/cher.json",
+    "/geo/france/departments/eure-et-loir.json",
+    "/geo/france/departments/indre.json",
+    "/geo/france/departments/indre-et-loire.json",
+    "/geo/france/departments/loir-et-cher.json",
+    "/geo/france/departments/loiret.json",
+    // Bourgogne-Franche-Comté
+    "/geo/france/departments/cote-dor.json",
+    "/geo/france/departments/doubs.json",
+    "/geo/france/departments/jura.json",
+    "/geo/france/departments/nievre.json",
+    "/geo/france/departments/haute-saone.json",
+    "/geo/france/departments/saone-et-loire.json",
+    "/geo/france/departments/yonne.json",
+    "/geo/france/departments/territoire-de-belfort.json",
+    // Normandie
+    "/geo/france/departments/calvados.json",
+    "/geo/france/departments/eure.json",
+    "/geo/france/departments/manche.json",
+    "/geo/france/departments/orne.json",
+    "/geo/france/departments/seine-maritime.json",
+    // Hauts-de-France
+    "/geo/france/departments/aisne.json",
+    "/geo/france/departments/nord.json",
+    "/geo/france/departments/oise.json",
+    "/geo/france/departments/pas-de-calais.json",
+    "/geo/france/departments/somme.json",
+    // Grand Est
+    "/geo/france/departments/ardennes.json",
+    "/geo/france/departments/aube.json",
+    "/geo/france/departments/marne.json",
+    "/geo/france/departments/haute-marne.json",
+    "/geo/france/departments/meurthe-et-moselle.json",
+    "/geo/france/departments/meuse.json",
+    "/geo/france/departments/moselle.json",
+    "/geo/france/departments/bas-rhin.json",
+    "/geo/france/departments/haut-rhin.json",
+    "/geo/france/departments/vosges.json",
+    // Pays de la Loire
+    "/geo/france/departments/loire-atlantique.json",
+    "/geo/france/departments/maine-et-loire.json",
+    "/geo/france/departments/mayenne.json",
+    "/geo/france/departments/sarthe.json",
+    "/geo/france/departments/vendee.json",
+    // Bretagne
+    "/geo/france/departments/cotes-darmor.json",
+    "/geo/france/departments/finistere.json",
+    "/geo/france/departments/ille-et-vilaine.json",
+    "/geo/france/departments/morbihan.json",
+    // Nouvelle-Aquitaine
     "/geo/france/departments/charente.json",
     "/geo/france/departments/charente-maritime.json",
     "/geo/france/departments/correze.json",
@@ -71,6 +131,43 @@ private val FRANCE_ADMIN_2_RESOURCE_PATHS = listOf(
     "/geo/france/departments/deux-sevres.json",
     "/geo/france/departments/vienne.json",
     "/geo/france/departments/haute-vienne.json",
+    // Occitanie
+    "/geo/france/departments/ariege.json",
+    "/geo/france/departments/aude.json",
+    "/geo/france/departments/aveyron.json",
+    "/geo/france/departments/gard.json",
+    "/geo/france/departments/haute-garonne.json",
+    "/geo/france/departments/gers.json",
+    "/geo/france/departments/herault.json",
+    "/geo/france/departments/lot.json",
+    "/geo/france/departments/lozere.json",
+    "/geo/france/departments/hautes-pyrenees.json",
+    "/geo/france/departments/pyrenees-orientales.json",
+    "/geo/france/departments/tarn.json",
+    "/geo/france/departments/tarn-et-garonne.json",
+    // Auvergne-Rhône-Alpes
+    "/geo/france/departments/ain.json",
+    "/geo/france/departments/allier.json",
+    "/geo/france/departments/ardeche.json",
+    "/geo/france/departments/cantal.json",
+    "/geo/france/departments/drome.json",
+    "/geo/france/departments/isere.json",
+    "/geo/france/departments/loire.json",
+    "/geo/france/departments/haute-loire.json",
+    "/geo/france/departments/puy-de-dome.json",
+    "/geo/france/departments/rhone.json",
+    "/geo/france/departments/savoie.json",
+    "/geo/france/departments/haute-savoie.json",
+    // Provence-Alpes-Côte d'Azur
+    "/geo/france/departments/alpes-de-haute-provence.json",
+    "/geo/france/departments/hautes-alpes.json",
+    "/geo/france/departments/alpes-maritimes.json",
+    "/geo/france/departments/bouches-du-rhone.json",
+    "/geo/france/departments/var.json",
+    "/geo/france/departments/vaucluse.json",
+    // Corse
+    "/geo/france/departments/corse-du-sud.json",
+    "/geo/france/departments/haute-corse.json",
 )
 
 /**

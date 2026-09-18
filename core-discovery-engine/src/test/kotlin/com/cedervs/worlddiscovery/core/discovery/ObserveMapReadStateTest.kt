@@ -176,16 +176,17 @@ class ObserveMapReadStateTest {
     }
 
     @Test
-    fun `franceAdmin2Statuses covers every loaded department and stays unvisited when the only discovery is outside all of them`() = runTest {
-        // Paris (Ile-de-France) is outside every loaded department (all 12 belong to
-        // Nouvelle-Aquitaine, a different region) -- see FranceAdministrativeAreas.kt's own doc
-        // comment for why department coverage is scoped to Nouvelle-Aquitaine this round.
+    fun `franceAdmin2Statuses covers every loaded department and marks only Paris visited from a Paris discovery`() = runTest {
+        // Paris (Ile-de-France) has its own loaded department (admin2:FR-75, Phase FH-1) -- a Paris
+        // discovery must visit exactly that one and leave every other loaded department, including
+        // all of Nouvelle-Aquitaine's, unvisited.
         repository.emit(listOf(discoveredParis))
 
         val state = observeMapReadState().first()
 
         assertEquals(administrativeAreas.departments.size, state.franceAdmin2Statuses.size)
-        assertTrue(state.franceAdmin2Statuses.none { it.visited })
+        val visitedIds = state.franceAdmin2Statuses.filter { it.visited }.map { it.area.id }
+        assertEquals(listOf("admin2:FR-75"), visitedIds)
     }
 
     @Test

@@ -65,6 +65,18 @@ internal const val GEOGRAPHIC_SELECTED_FILL_COLOR = "#FFA23A"
 internal const val GEOGRAPHIC_DIRECT_SUBLEVEL_FILL_COLOR = "#C96A16"
 internal const val GEOGRAPHIC_ANCESTOR_CONTEXT_FILL_COLOR = "#7A3D16"
 
+// CALIBRATION REQUIRED -- FH-1 runtime hierarchy fix: unvisited Regions/Departments must now be
+// rendered (see AdministrativeOverlayRendering.kt's own doc comment for why -- existence and
+// discovery state are different concepts, and an unvisited administrative area must remain
+// navigable) but must NEVER read as visited/orange -- orange stays reserved for real presence. These
+// three neutral greys mirror the existing orange palette's own light/medium/dark progression (so
+// "selected" still reads lightest/most prominent and "ancestor context" still reads darkest/most
+// subdued) without ever being confused with the visited-orange semantics. Provisional starting
+// values only, same status as the existing orange constants above -- not a final palette decision.
+internal const val GEOGRAPHIC_UNVISITED_SELECTED_FILL_COLOR = "#9E9E9E"
+internal const val GEOGRAPHIC_UNVISITED_DIRECT_SUBLEVEL_FILL_COLOR = "#707070"
+internal const val GEOGRAPHIC_UNVISITED_ANCESTOR_CONTEXT_FILL_COLOR = "#454545"
+
 /** The GeoJSON property every Country/Region/Department rendered `Feature` is tagged with, carrying
  * its own [GeographicAreaStyleRole] (by `name`) as computed at feature-collection-build time — the
  * FillLayer/LineLayer color is a static `Expression.match` reading this property (see
@@ -134,6 +146,73 @@ internal fun GeographicAreaStyleRole.fillColorHex(): String = when (this) {
     GeographicAreaStyleRole.SELECTED -> GEOGRAPHIC_SELECTED_FILL_COLOR
     GeographicAreaStyleRole.DIRECT_SUBLEVEL -> GEOGRAPHIC_DIRECT_SUBLEVEL_FILL_COLOR
     GeographicAreaStyleRole.ANCESTOR_CONTEXT -> GEOGRAPHIC_ANCESTOR_CONTEXT_FILL_COLOR
+}
+
+/**
+ * **FH-1 runtime hierarchy fix.** [GeographicAreaStyleRole] alone answered "how prominent should
+ * this area read, relative to the current selection" — a question that only had a sensible answer
+ * because every rendered Region/Department used to be visited already (the very bug this fix
+ * corrects). Now that unvisited administrative areas are rendered too (see
+ * `AdministrativeOverlayRendering.kt`'s own doc comment), color must depend on BOTH [role] and
+ * [visited] — this is the single combined decision, kept as its own small pure function (directly
+ * unit-testable, no MapLibre runtime needed, mirroring [fillColorHex]'s own shape) rather than
+ * folded into [GeographicAreaStyleRole] itself, which stays a purely selection-relative concept with
+ * no notion of discovery state — see [GeographicAreaVisitedStatus]'s own doc comment for why
+ * "administrative existence" and "discovery presence" must stay two different concepts, never
+ * merged into one enum. **Orange (any of the three visited colors above) always means VISITED/
+ * PRESENCE; every unvisited combination uses one of the three neutral greys instead — never orange,
+ * regardless of role.**
+ */
+internal fun administrativeFillColorHex(role: GeographicAreaStyleRole, visited: Boolean): String = if (visited) {
+    role.fillColorHex()
+} else {
+    when (role) {
+        GeographicAreaStyleRole.SELECTED -> GEOGRAPHIC_UNVISITED_SELECTED_FILL_COLOR
+        GeographicAreaStyleRole.DIRECT_SUBLEVEL -> GEOGRAPHIC_UNVISITED_DIRECT_SUBLEVEL_FILL_COLOR
+        GeographicAreaStyleRole.ANCESTOR_CONTEXT -> GEOGRAPHIC_UNVISITED_ANCESTOR_CONTEXT_FILL_COLOR
+    }
+}
+
+/** The GeoJSON property every Region/Department rendered `Feature` additionally carries (alongside
+ * [GEOGRAPHIC_STYLE_ROLE_PROPERTY]) — an explicit `"true"`/`"false"` visited flag, read by
+ * [administrativeAreaColorExpression] together with the role property so color reflects both
+ * dimensions at once. Deliberately a separate property from [GEOGRAPHIC_STYLE_ROLE_PROPERTY] rather
+ * than folding visited-ness into the role name itself, so a future consumer that only cares about
+ * one dimension (e.g. a click handler that already receives the real, already-classified
+ * [GeographicAreaVisitedStatus]) never has to parse a compound tag to get it. Not used by the
+ * Country-level overlay ([CountryOverlayRendering]), which is unaffected by this fix — see this
+ * property's own introduction in `PROJECT_STATUS.md`'s FH-1 runtime hierarchy fix entry for why the
+ * scope stayed Region/Department-only. */
+internal const val ADMIN_OVERLAY_VISITED_PROPERTY = "visited"
+
+/**
+ * The Region/Department-specific counterpart of [geographicAreaStyleRoleColorExpression] — reads
+ * BOTH [GEOGRAPHIC_STYLE_ROLE_PROPERTY] and [ADMIN_OVERLAY_VISITED_PROPERTY] off each rendered
+ * Feature (via a single concatenated match key, the same "one property, one `Expression.match`"
+ * shape every other color expression in this module already uses — see
+ * [geographicAreaStyleRoleColorExpression]'s own doc comment) and maps the combination to
+ * [administrativeFillColorHex]'s own result. **Never used by [CountryOverlayRendering]** — that
+ * level keeps its existing, unchanged [geographicAreaStyleRoleColorExpression] since Country-level
+ * rendering was never filtered to visited-only and is out of this fix's scope.
+ */
+internal fun administrativeAreaColorExpression(): Expression {
+    val combinedKey = Expression.concat(
+        Expression.get(GEOGRAPHIC_STYLE_ROLE_PROPERTY),
+        Expression.literal("_"),
+        Expression.get(ADMIN_OVERLAY_VISITED_PROPERTY),
+    )
+    return Expression.match(
+        combinedKey,
+        Expression.color(Color.parseColor(administrativeFillColorHex(GeographicAreaStyleRole.ANCESTOR_CONTEXT, visited = false))),
+        *GeographicAreaStyleRole.entries.flatMap { role ->
+            listOf(true, false).map { visited ->
+                Expression.stop(
+                    "${role.name}_$visited",
+                    Expression.color(Color.parseColor(administrativeFillColorHex(role, visited))),
+                )
+            }
+        }.toTypedArray(),
+    )
 }
 
 /**
